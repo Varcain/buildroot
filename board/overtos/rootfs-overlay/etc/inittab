@@ -1,10 +1,11 @@
 # oveRTOS init: empty-id entries inherit init's console (the personality gives
-# PID 1 the console on fds 0/1/2), avoiding the /dev/console controlling-tty
-# path. sysinit mounts + rcS, then a login shell respawns on the console.
+# PID 1 the console on fds 0/1/2). sysinit mounts + a minimal rcS, then getty
+# opens the console, prints the issue + "login:", and execs login (root has an
+# empty password) which drops into the shell.
 ::sysinit:/bin/mount -t proc proc /proc
 ::sysinit:/bin/mount -o remount,rw /
 ::sysinit:/bin/mkdir -p /dev/pts /dev/shm
 ::sysinit:/etc/init.d/rcS
-::respawn:-/bin/sh
+::respawn:/sbin/getty -L console 0 vt100
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/bin/umount -a -r
