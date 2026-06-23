@@ -1,0 +1,5 @@
+#!/bin/sh
+# oveRTOS minimal rcS: the inittab handles the essential mounts; the stock
+# Buildroot S-scripts (seedrng/modules) target services we do not have, so the
+# boot goes straight to the login shell.
+echo "oveRTOS: rcS done"
