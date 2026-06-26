@@ -5,10 +5,22 @@
 #    libgcc blob is dead weight in the (firmware-embedded) rootfs.cpio.
 # 2. Provide the PT_INTERP path the FDPIC binaries name (/usr/lib/ld.so.1) as a symlink to
 #    the real loader, so the personality can resolve the interpreter by its named path.
+# 3. Compile the personality's pthread + GDB source-debug test programs (sources in
+#    board/overtos/progs) into /usr/bin, so the firmware-embedded rootfs.cpio carries them
+#    for CI + on-target debugging (t_pth/t_pmin exercise LinuxThreads; dbgdemo is built -g).
 set -e
 TARGET="$1"
 rm -f "$TARGET"/lib/libgcc_s.so* "$TARGET"/usr/lib/libgcc_s.so*
 if [ -e "$TARGET/lib/ld-uClibc.so.0" ]; then
 	mkdir -p "$TARGET/usr/lib"
 	ln -sf /lib/ld-uClibc.so.0 "$TARGET/usr/lib/ld.so.1"
+fi
+
+GCC="$HOST_DIR/bin/arm-buildroot-uclinuxfdpiceabi-gcc"
+PROGS="$(CDPATH= cd -- "$(dirname -- "$0")/progs" 2>/dev/null && pwd)"
+if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
+	mkdir -p "$TARGET/usr/bin"
+	"$GCC" -mfdpic -O2 "$PROGS/t_pth.c" -o "$TARGET/usr/bin/t_pth" -pthread
+	"$GCC" -mfdpic -O2 "$PROGS/t_pmin.c" -o "$TARGET/usr/bin/t_pmin" -pthread
+	"$GCC" -mfdpic -g -O0 "$PROGS/dbgdemo.c" -o "$TARGET/usr/bin/dbgdemo"
 fi
