@@ -5,7 +5,11 @@
 #    libgcc blob is dead weight in the (firmware-embedded) rootfs.cpio.
 # 2. Provide the PT_INTERP path the FDPIC binaries name (/usr/lib/ld.so.1) as a symlink to
 #    the real loader, so the personality can resolve the interpreter by its named path.
-# 3. Compile the personality's test programs (sources in board/overtos/progs) into /usr/bin,
+# 3. Strip the debug-info-heavy uClibc + busybox (they ship unstripped — no global BR2_STRIP):
+#    the STM32F746's 1MB flash can't fit the firmware + the (firmware-embedded) rootfs.cpio
+#    otherwise; the an500 (16M PSRAM) is unaffected. dbgdemo (compiled -g in step 4, AFTER the
+#    strip) keeps its source-level-debug symbols.
+# 4. Compile the personality's test programs (sources in board/overtos/progs) into /usr/bin,
 #    so the firmware-embedded rootfs.cpio carries them for CI + on-target debugging (t_pth and
 #    t_pmin exercise LinuxThreads; dbgdemo is built -g for source-level debug; segv is the
 #    FreeRTOS-MPU negative-isolation test — a deliberate kernel-SRAM write that must fault +
@@ -16,6 +20,11 @@ rm -f "$TARGET"/lib/libgcc_s.so* "$TARGET"/usr/lib/libgcc_s.so*
 if [ -e "$TARGET/lib/ld-uClibc.so.0" ]; then
 	mkdir -p "$TARGET/usr/lib"
 	ln -sf /lib/ld-uClibc.so.0 "$TARGET/usr/lib/ld.so.1"
+fi
+
+STRIP="$HOST_DIR/bin/arm-buildroot-uclinuxfdpiceabi-strip"
+if [ -x "$STRIP" ]; then
+	"$STRIP" --strip-unneeded "$TARGET"/lib/libuClibc-*.so "$TARGET"/bin/busybox 2>/dev/null || true
 fi
 
 GCC="$HOST_DIR/bin/arm-buildroot-uclinuxfdpiceabi-gcc"
