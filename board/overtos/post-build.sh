@@ -5,9 +5,11 @@
 #    libgcc blob is dead weight in the (firmware-embedded) rootfs.cpio.
 # 2. Provide the PT_INTERP path the FDPIC binaries name (/usr/lib/ld.so.1) as a symlink to
 #    the real loader, so the personality can resolve the interpreter by its named path.
-# 3. Compile the personality's pthread + GDB source-debug test programs (sources in
-#    board/overtos/progs) into /usr/bin, so the firmware-embedded rootfs.cpio carries them
-#    for CI + on-target debugging (t_pth/t_pmin exercise LinuxThreads; dbgdemo is built -g).
+# 3. Compile the personality's test programs (sources in board/overtos/progs) into /usr/bin,
+#    so the firmware-embedded rootfs.cpio carries them for CI + on-target debugging (t_pth and
+#    t_pmin exercise LinuxThreads; dbgdemo is built -g for source-level debug; segv is the
+#    FreeRTOS-MPU negative-isolation test — a deliberate kernel-SRAM write that must fault +
+#    be contained).
 set -e
 TARGET="$1"
 rm -f "$TARGET"/lib/libgcc_s.so* "$TARGET"/usr/lib/libgcc_s.so*
@@ -23,4 +25,5 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/t_pth.c" -o "$TARGET/usr/bin/t_pth" -pthread
 	"$GCC" -mfdpic -O2 "$PROGS/t_pmin.c" -o "$TARGET/usr/bin/t_pmin" -pthread
 	"$GCC" -mfdpic -g -O0 "$PROGS/dbgdemo.c" -o "$TARGET/usr/bin/dbgdemo"
+	"$GCC" -mfdpic -O2 "$PROGS/segv.c" -o "$TARGET/usr/bin/segv"
 fi
