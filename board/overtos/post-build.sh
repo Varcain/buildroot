@@ -12,8 +12,10 @@
 # 4. Compile the personality's test programs (sources in board/overtos/progs) into /usr/bin,
 #    so the firmware-embedded rootfs.cpio carries them for CI + on-target debugging (t_pth and
 #    t_pmin exercise LinuxThreads; dbgdemo is built -g for source-level debug; segv is the
-#    FreeRTOS-MPU negative-isolation test — a deliberate kernel-SRAM write that must fault +
-#    be contained).
+#    negative KERNEL-isolation test — a deliberate kernel-SRAM write, denied by the ARM default
+#    map; xregion is the negative INTER-PROGRAM-isolation test — a write to a SIBLING's pool
+#    region, denied by the privileged-only whole-pool base MPU region (Phase 2). Both must fault
+#    and be contained).
 set -e
 TARGET="$1"
 rm -f "$TARGET"/lib/libgcc_s.so* "$TARGET"/usr/lib/libgcc_s.so*
@@ -35,4 +37,5 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/t_pmin.c" -o "$TARGET/usr/bin/t_pmin" -pthread
 	"$GCC" -mfdpic -g -O0 "$PROGS/dbgdemo.c" -o "$TARGET/usr/bin/dbgdemo"
 	"$GCC" -mfdpic -O2 "$PROGS/segv.c" -o "$TARGET/usr/bin/segv"
+	"$GCC" -mfdpic -O2 "$PROGS/xregion.c" -o "$TARGET/usr/bin/xregion"
 fi
