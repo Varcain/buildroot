@@ -34,6 +34,13 @@ int main(void)
 	}
 	lv_linux_fbdev_set_file(disp, "/dev/fb0");
 
+	/* Touch input (best-effort — absent if the board has no /dev/input/event0). */
+	lv_indev_t *touch = lv_evdev_create(LV_INDEV_TYPE_POINTER, "/dev/input/event0");
+	if (touch) {
+		lv_indev_set_display(touch, disp);
+		printf("lvbench: touch input on /dev/input/event0\n");
+	}
+
 	printf("lvbench: starting lv_demo_benchmark on /dev/fb0\n");
 	lv_demo_benchmark_set_end_cb(on_end);
 	lv_demo_benchmark();
