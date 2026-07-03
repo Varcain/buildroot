@@ -319,12 +319,36 @@ static void bench_spawn(unsigned int windows)
 	emit_case("spawn_vfork_exec", "latency", g_s, got);
 }
 
+/* Monotonicity check for CLOCK_MONOTONIC across the DWT 32-bit wrap (~19.86s @216MHz):
+ * spin-reading the clock for ~25s and assert it never goes backwards. On a build with the
+ * raw 32-bit-cycle clock this trips (backwards > 0, and the span underflows early); with the
+ * 64-bit wrap-stitched clock it runs the full span with backwards == 0 and max > 20e9 ns. */
+static int mono_test(void)
+{
+	uint64_t start = now_ns(), prev = start, cur = start, maxv = start;
+	unsigned long backwards = 0, iters = 0;
+	while ((cur = now_ns()) - start < 25000000000ull && iters < 200000000ul) {
+		if (cur < prev)
+			backwards++;
+		if (cur > maxv)
+			maxv = cur;
+		prev = cur;
+		iters++;
+	}
+	printf("MONOTEST iters=%lu backwards=%lu max_ns=%llu span_ns=%llu %s\n", iters, backwards,
+	       (unsigned long long)maxv, (unsigned long long)(cur - start),
+	       (backwards == 0 && (maxv - start) >= 20000000000ull) ? "PASS" : "FAIL");
+	return backwards ? 1 : 0;
+}
+
 /* ---- main ---------------------------------------------------------------- */
 int main(int argc, char **argv)
 {
 	if (argc > 1) { /* child modes (re-exec of this binary) */
 		if (!strcmp(argv[1], "nop"))
 			return 0;
+		if (!strcmp(argv[1], "monotest"))
+			return mono_test();
 		if (!strcmp(argv[1], "pong") && argc >= 4)
 			return child_pong(atoi(argv[2]), atoi(argv[3]));
 		if (!strcmp(argv[1], "sink") && argc >= 3)
