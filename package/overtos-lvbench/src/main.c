@@ -17,8 +17,19 @@
  * headless run has a definitive "done + FPS" signal and returns to the shell. */
 static void on_end(const lv_demo_benchmark_summary_t *s)
 {
-	printf("lvbench: DONE avg_fps=%ld avg_cpu=%ld avg_render_ms=%ld\n",
-	       (long)s->total_avg_fps, (long)s->total_avg_cpu, (long)s->total_avg_render_time);
+	/* Emit the benchmark's own per-scene CSV breakdown to the console before exiting:
+	 * "Name, Avg. CPU, Avg. FPS, Avg. time, render time, flush time" + one row per scene
+	 * (rectangles, borders, images, text, lines, arcs, ...) + the all-scenes average. This
+	 * is logged via LV_LOG inside summary_display (LV_USE_LOG + LV_LOG_PRINTF in lv_conf.h);
+	 * the summary screen it also builds is never flushed since we _exit right after. */
+	lv_demo_benchmark_summary_display(s);
+	/* The summary's total_avg_* fields are SUMS over the scenes; the benchmark's own
+	 * "All scenes avg." divides them by valid_scene_cnt — do the same so this line is a
+	 * real average, not a per-scene sum. */
+	long n = s->valid_scene_cnt > 0 ? s->valid_scene_cnt : 1;
+	printf("lvbench: DONE scenes=%ld avg_fps=%ld avg_cpu=%ld%% avg_render_ms=%ld avg_flush_ms=%ld\n",
+	       (long)s->valid_scene_cnt, (long)s->total_avg_fps / n, (long)s->total_avg_cpu / n,
+	       (long)s->total_avg_render_time / n, (long)s->total_avg_flush_time / n);
 	fflush(stdout);
 	_exit(0);
 }
