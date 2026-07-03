@@ -1,0 +1,9 @@
+config BR2_PACKAGE_OVERTOS_LVBENCH
+	bool "overtos-lvbench (LVGL fbdev benchmark)"
+	help
+	  lv_demo_benchmark built against LVGL's Linux fbdev driver as a static
+	  FDPIC binary (/usr/bin/lvbench) for the oveRTOS Linux personality — it
+	  renders to /dev/fb0. Needs the personality's framebuffer device
+	  (CONFIG_OVE_LINUX_DEV_FB on the oveRTOS side).
+
+	  https://lvgl.io

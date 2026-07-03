@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+#
+# Build lv_demo_benchmark + LVGL into one static -mfdpic binary (lvbench) for the
+# oveRTOS Linux personality. Invoked by overtos-lvbench.mk from inside the
+# extracted LVGL tree (where main.c + lv_conf.h have been copied). LVGL's own
+# driver/demo .c files are #if-guarded, so compiling the whole src/ tree only
+# pulls in what lv_conf.h enables (fbdev, evdev, sw draw, benchmark).
+
+LVGL_DIR ?= .
+CC       ?= gcc
+CFLAGS   ?= -Os
+
+override CFLAGS += -mfdpic -Os -g0 -ffunction-sections -fdata-sections \
+                   -I$(LVGL_DIR) -DLV_CONF_INCLUDE_SIMPLE \
+                   -Wno-unused-parameter -Wno-unused-variable
+override LDFLAGS += -Wl,--gc-sections
+
+SRCS := $(shell find $(LVGL_DIR)/src -name '*.c') \
+        $(shell find $(LVGL_DIR)/demos -name '*.c') \
+        $(LVGL_DIR)/main.c
+
+lvbench: $(SRCS)
+	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@ -lm
+
+.PHONY: clean
+clean:
+	rm -f lvbench
