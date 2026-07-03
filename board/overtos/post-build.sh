@@ -39,4 +39,5 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/segv.c" -o "$TARGET/usr/bin/segv"
 	"$GCC" -mfdpic -O2 "$PROGS/xregion.c" -o "$TARGET/usr/bin/xregion"
 	"$GCC" -mfdpic -O2 "$PROGS/kstress.c" -o "$TARGET/usr/bin/kstress"
+	"$GCC" -mfdpic -O2 "$PROGS/lbench.c" -o "$TARGET/usr/bin/lbench"
 fi
