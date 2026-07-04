@@ -8,9 +8,9 @@
 
 LVGL_DIR ?= .
 CC       ?= gcc
-CFLAGS   ?= -Os
+CFLAGS   ?= -O2
 
-override CFLAGS += -mfdpic -Os -g0 -ffunction-sections -fdata-sections \
+override CFLAGS += -mfdpic -O2 -g0 -ffunction-sections -fdata-sections \
                    -I$(LVGL_DIR) -DLV_CONF_INCLUDE_SIMPLE \
                    -Wno-unused-parameter -Wno-unused-variable
 override LDFLAGS += -Wl,--gc-sections
