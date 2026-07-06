@@ -23,6 +23,13 @@ define OVERTOS_LVBENCH_BUILD_CMDS
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/main.c $(@D)/main.c
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/lv_conf.h $(@D)/lv_conf.h
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/Makefile.lvbench $(@D)/Makefile.lvbench
+	# P3: overlay our patched fbdev driver (runtime mmap-or-pwrite fallback) onto the rsynced
+	# LVGL tree. LV_LINUX_FBDEV_MMAP=1 makes the guest mmap /dev/fb0 and memcpy pixels straight
+	# into it; if the personality can't map the fb (no free MPU region on that engine) the mmap
+	# fails and the driver falls back to the per-scanline pwrite, so ONE binary renders on every
+	# engine. Copied here (not into dl/lvgl, which `ove download` re-clones) so it is tracked +
+	# survives a re-sync, matching how lv_conf.h/main.c are vendored.
+	cp $(OVERTOS_LVBENCH_PKGDIR)/src/lv_linux_fbdev.c $(@D)/src/drivers/display/fb/lv_linux_fbdev.c
 	$(MAKE) -C $(@D) -f Makefile.lvbench $(TARGET_CONFIGURE_OPTS) LVGL_DIR=$(@D)
 endef
 
