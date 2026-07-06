@@ -19,6 +19,11 @@
 #include <time.h>
 #include <errno.h>
 
+/* oveRTOS: runtime-tunable partial draw-buffer height (in lines).  Defaults to the
+ * compile-time LV_LINUX_FBDEV_BUFFER_SIZE; the lvbench harness overrides it from
+ * argv[1] so the draw-buffer size can be swept without rebuilding the rootfs. */
+int lv_linux_fbdev_buf_lines = LV_LINUX_FBDEV_BUFFER_SIZE;
+
 #if LV_LINUX_FBDEV_BSD
     #include <sys/fcntl.h>
     #include <sys/consio.h>
@@ -228,7 +233,7 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
     int32_t width = dsc->vinfo.width;
     uint32_t draw_buf_size = hor_res * (dsc->vinfo.bits_per_pixel >> 3);
     if(LV_LINUX_FBDEV_RENDER_MODE == LV_DISPLAY_RENDER_MODE_PARTIAL) {
-        draw_buf_size *= LV_LINUX_FBDEV_BUFFER_SIZE;
+        draw_buf_size *= lv_linux_fbdev_buf_lines;
     }
     else {
         draw_buf_size *= ver_res;
@@ -237,6 +242,11 @@ lv_result_t lv_linux_fbdev_set_file(lv_display_t * disp, const char * file)
     uint8_t * draw_buf = NULL;
     uint8_t * draw_buf_2 = NULL;
     draw_buf = lv_malloc(draw_buf_size);
+    if(draw_buf == NULL) {
+        LV_LOG_ERROR("draw buffer alloc failed (%u bytes, %d lines)",
+                     (unsigned)draw_buf_size, lv_linux_fbdev_buf_lines);
+        return LV_RESULT_INVALID;
+    }
 
     if(LV_LINUX_FBDEV_BUFFER_COUNT == 2) {
         draw_buf_2 = lv_malloc(draw_buf_size);

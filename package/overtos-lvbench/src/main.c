@@ -11,6 +11,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 /* Print the benchmark summary to stdout when all scenes finish, then exit — so a
@@ -34,9 +35,22 @@ static void on_end(const lv_demo_benchmark_summary_t *s)
 	_exit(0);
 }
 
-int main(void)
+/* oveRTOS: partial draw-buffer height override (lines), defined in the fbdev driver. */
+extern int lv_linux_fbdev_buf_lines;
+
+int main(int argc, char **argv)
 {
 	lv_init();
+
+	/* Optional argv[1] = partial draw-buffer height in lines, for sweeping the
+	 * draw-buffer size (defaults to LV_LINUX_FBDEV_BUFFER_SIZE when absent). */
+	if (argc > 1) {
+		int n = atoi(argv[1]);
+		if (n > 0)
+			lv_linux_fbdev_buf_lines = n;
+		printf("lvbench: draw buffer = %d lines (%d bytes)\n",
+		       lv_linux_fbdev_buf_lines, lv_linux_fbdev_buf_lines * 480 * 2);
+	}
 
 	lv_display_t *disp = lv_linux_fbdev_create();
 	if (!disp) {
