@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Tue, 7 Jul 2026 00:00:00 +0200
+Subject: [PATCH] arm: keep Thumb mode on M-profile
+
+Arm M-profile cores are Thumb-only.  The ARM sysv assembly already has
+Thumb-mode code paths, but non-Windows builds force the file back to ARM
+mode by undefining __thumb__ and emitting .arm.  That fails for Cortex-M
+targets with:
+
+  Error: selected processor does not support ARM opcodes
+
+Keep Thumb mode when the compiler targets an M-profile core, and avoid
+lowering the assembler architecture to armv5t in that case.
+
+Signed-off-by: Codex <codex@openai.com>
+---
+ src/arm/sysv.S | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/arm/sysv.S b/src/arm/sysv.S
+index 9341efb..ea70ac8 100644
+--- a/src/arm/sysv.S
++++ b/src/arm/sysv.S
+@@ -94,8 +94,8 @@
+ 
+ 	.text
+ 	.syntax unified
+-#if defined(_WIN32)
+-	/* Windows on ARM is thumb-only */
++#if defined(_WIN32) || (defined(__ARM_ARCH_PROFILE) && __ARM_ARCH_PROFILE == 'M')
++	/* Windows and Arm M-profile are thumb-only */
+ 	.thumb
+ #else
+ 	/* Keep the assembly in ARM mode in other cases, for simplicity
+@@ -120,7 +120,7 @@
+ #endif
+ 
+ 
+-#ifndef __clang__
++#if !defined(__clang__) && !(defined(__ARM_ARCH_PROFILE) && __ARM_ARCH_PROFILE == 'M')
+ 	/* We require interworking on LDM, which implies ARMv5T,
+ 	   which implies the existance of BLX.  */
+  	.arch	armv5t
+-- 
+2.50.1
+
