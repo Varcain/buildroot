@@ -72,7 +72,14 @@ LIBCURL_CONF_OPTS += --without-gnutls
 endif
 
 ifeq ($(BR2_PACKAGE_LIBCURL_MBEDTLS),y)
-LIBCURL_CONF_OPTS += --with-mbedtls=$(STAGING_DIR)/usr
+# Unlike the openssl/wolfssl branches, upstream's mbedtls branch sets no default
+# CA location, so curl falls back to an autoconf-probed path (the c_rehash dir,
+# which the oveRTOS rootfs does not populate) and every https:// fails with
+# "certificate not signed by trusted CA". Point curl's default CA at our single
+# bundle and disable the empty ca-path so verification works without --cacert.
+LIBCURL_CONF_OPTS += --with-mbedtls=$(STAGING_DIR)/usr \
+	--with-ca-bundle=/etc/ssl/certs/ca-certificates.crt \
+	--without-ca-path
 LIBCURL_DEPENDENCIES += mbedtls
 else
 LIBCURL_CONF_OPTS += --without-mbedtls

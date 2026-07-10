@@ -10,5 +10,13 @@ BR2_ROOTFS_POST_BUILD_SCRIPT="board/overtos/post-build.sh"
 BR2_PACKAGE_BUSYBOX_CONFIG="board/overtos/busybox.config"
 BR2_PACKAGE_OVERTOS_LVBENCH=y
 # BR2_PACKAGE_IFUPDOWN_SCRIPTS is not set
+# HTTPS from the personality (P5): curl + mbedTLS (library only — the mbedtls
+# companion programs are MMU-gated; the lib is NoMMU/FDPIC-OK) + a CA bundle.
+BR2_PACKAGE_MBEDTLS=y
+BR2_PACKAGE_LIBCURL=y
+BR2_PACKAGE_LIBCURL_CURL=y
+BR2_PACKAGE_LIBCURL_MBEDTLS=y
+# BR2_PACKAGE_LIBCURL_EXTRA_PROTOCOLS_FEATURES is not set
+BR2_PACKAGE_CA_CERTIFICATES=y
 BR2_TARGET_ROOTFS_CPIO=y
 # BR2_TARGET_ROOTFS_TAR is not set
