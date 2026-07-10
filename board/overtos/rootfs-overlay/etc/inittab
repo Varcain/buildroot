@@ -1,11 +1,20 @@
 # oveRTOS init: empty-id entries inherit init's console (the personality gives
 # PID 1 the console on fds 0/1/2). sysinit mounts + a minimal rcS, then getty
-# opens the console, prints the issue + "login:", and execs login (root has an
-# empty password) which drops into the shell.
+# opens the console, prints the issue + "login:", and execs login. root now has a
+# password (BR2_TARGET_GENERIC_ROOT_PASSWD, required so SSH/dropbear password auth
+# works — it refuses a blank one), so both the console and SSH prompt for it.
 ::sysinit:/bin/mount -t proc proc /proc
 ::sysinit:/bin/mount -o remount,rw /
-::sysinit:/bin/mkdir -p /dev/pts /dev/shm
+::sysinit:/bin/mkdir -p /dev/pts /dev/shm /var/run/dropbear
+# Pre-generate the SSH host key here (not rcS, which can intermittently fail to
+# run) into the writable overlay — /etc/dropbear is a symlink to /var/run/dropbear
+# whose dir must exist first. Ed25519 keygen is fast; dropbear -i loads it via -r.
+::sysinit:/usr/bin/dropbearkey -t ed25519 -f /var/run/dropbear/dropbear_ed25519_host_key
 ::sysinit:/etc/init.d/rcS
 ::respawn:/sbin/getty -L console 0 vt100
+# SSH server via inetd: NoMMU dropbear has no standalone daemon mode, so busybox
+# inetd listens on :22 and spawns "dropbear -i" per connection (see /etc/inetd.conf).
+# -f keeps inetd in the foreground so init respawns it.
+::respawn:/usr/sbin/inetd -f /etc/inetd.conf
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/bin/umount -a -r

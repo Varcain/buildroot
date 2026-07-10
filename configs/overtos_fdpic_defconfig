@@ -18,5 +18,13 @@ BR2_PACKAGE_LIBCURL_CURL=y
 BR2_PACKAGE_LIBCURL_MBEDTLS=y
 # BR2_PACKAGE_LIBCURL_EXTRA_PROTOCOLS_FEATURES is not set
 BR2_PACKAGE_CA_CERTIFICATES=y
+# Interactive network login (SSH): dropbear is the NoMMU/FDPIC-OK SSH server
+# (openssh is BR2_USE_MMU-gated). Server only, bundled crypto (SMALL, no OpenSSL),
+# reverse-DNS off. The personality's /dev/ptmx + /dev/pts/N give it an interactive
+# pty; root password auth (below) — dropbear refuses a blank password.
+BR2_PACKAGE_DROPBEAR=y
+# BR2_PACKAGE_DROPBEAR_CLIENT is not set
+BR2_PACKAGE_DROPBEAR_DISABLE_REVERSEDNS=y
+BR2_TARGET_GENERIC_ROOT_PASSWD="root"
 BR2_TARGET_ROOTFS_CPIO=y
 # BR2_TARGET_ROOTFS_TAR is not set
