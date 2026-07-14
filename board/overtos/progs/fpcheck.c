@@ -65,7 +65,7 @@ int main(int argc, char **argv)
 		uint32_t seed = 0x9e3779b9u * (i + 1u);
 		if (!check_context(999, 0, 0, 0, seed, -38) ||
 		    !check_context(168 /* poll */, 0, 0, 1, ~seed, 0)) {
-			printf("hardfloat-fp-FAIL: context iteration %u\n", i);
+			printf("hardfloat-fp-context-fail iteration=%u\n", i);
 			return 1;
 		}
 	}
