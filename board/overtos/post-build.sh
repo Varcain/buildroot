@@ -73,10 +73,12 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/evread.c" -o "$TARGET/usr/bin/evread"
 	"$GCC" -mfdpic -O2 "$PROGS/nettest.c" -o "$TARGET/usr/bin/nettest"
 	# tlsprobe: mbedTLS crypto self-test (AES/GCM/SHA vectors) — needs the staged mbedtls.
-	if [ -f "$STAGING_DIR/usr/lib/libmbedcrypto.so" ]; then
+	if [ -f "$STAGING_DIR/usr/lib/libmbedcrypto.so" ] && [ -f "$PROGS/tlsprobe.c" ]; then
 		"$GCC" -mfdpic -O2 "$PROGS/tlsprobe.c" -o "$TARGET/usr/bin/tlsprobe" \
 			-I"$STAGING_DIR/usr/include" -L"$STAGING_DIR/usr/lib" \
 			-lmbedx509 -lmbedcrypto
+	fi
+	if [ -f "$STAGING_DIR/usr/lib/libmbedcrypto.so" ] && [ -f "$PROGS/tlsclient.c" ]; then
 		# tlsclient: minimal mbedTLS TLS client with debug tracing, to pinpoint
 		# where the handshake fails after cert verification (curl (56)).
 		"$GCC" -mfdpic -O2 "$PROGS/tlsclient.c" -o "$TARGET/usr/bin/tlsclient" \
