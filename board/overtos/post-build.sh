@@ -10,7 +10,9 @@
 #    so the QSPI rootfs.cpio carries them for CI + on-target debugging (t_pth and
 #    t_pmin exercise LinuxThreads; dbgdemo is built -g for source-level debug; segv is the
 #    negative KERNEL-isolation test — a deliberate kernel-SRAM write, denied by the ARM default
-#    map; xregion is the negative INTER-PROGRAM-isolation test — a write to a SIBLING's pool
+#    map; fpbadsp repeats that fault after activating VFP and replacing PSP with read-only memory,
+#    exercising failed core/lazy-FP stacking; xregion is the negative INTER-PROGRAM-isolation
+#    test — a write to a SIBLING's pool
 #    region, denied by the privileged-only whole-pool base MPU region (Phase 2). Both must fault
 #    and be contained).
 set -e
@@ -66,6 +68,7 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/t_pmin.c" -o "$TARGET/usr/bin/t_pmin" -pthread
 	"$GCC" -mfdpic -g -O0 "$PROGS/dbgdemo.c" -o "$TARGET/usr/bin/dbgdemo"
 	"$GCC" -mfdpic -O2 "$PROGS/segv.c" -o "$TARGET/usr/bin/segv"
+	"$GCC" -mfdpic -O2 "$PROGS/fpbadsp.c" -o "$TARGET/usr/bin/fpbadsp"
 	"$GCC" -mfdpic -O2 "$PROGS/xregion.c" -o "$TARGET/usr/bin/xregion"
 	"$GCC" -mfdpic -O2 "$PROGS/kstress.c" -o "$TARGET/usr/bin/kstress"
 	"$GCC" -mfdpic -O2 "$PROGS/lbench.c" -o "$TARGET/usr/bin/lbench"
