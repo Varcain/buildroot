@@ -10,6 +10,7 @@ PROGS="$(CDPATH= cd -- "$(dirname -- "$0")/progs" && pwd)"
 
 mkdir -p "$TARGET/usr/bin"
 "$GCC" -mfdpic -O2 "$PROGS/fpcheck.c" -o "$TARGET/usr/bin/fpcheck"
+"$GCC" -mfdpic -O2 "$PROGS/sigctx.c" -o "$TARGET/usr/bin/sigctx"
 
 check_hardfloat_fdpic()
 {
@@ -37,7 +38,8 @@ set -- "$TARGET/bin/busybox" \
 	"$TARGET"/lib/libuClibc-*.so \
 	"$TARGET"/lib/ld-uClibc-*.so \
 	"$TARGET/lib/libgcc_s.so.1" \
-	"$TARGET/usr/bin/fpcheck"
+	"$TARGET/usr/bin/fpcheck" \
+	"$TARGET/usr/bin/sigctx"
 for elf do
 	check_hardfloat_fdpic "$elf"
 done
