@@ -14,7 +14,10 @@
 #    exercising failed core/lazy-FP stacking; xregion is the negative INTER-PROGRAM-isolation
 #    test — a write to a SIBLING's pool
 #    region, denied by the privileged-only whole-pool base MPU region (Phase 2). Both must fault
-#    and be contained).
+#    and be contained. mpufault covers the classes those leave open: READING kernel SRAM (segv
+#    only writes it), touching a peripheral from unprivileged code (kstress feeds that address to
+#    syscalls, testing the validator rather than the MPU), and executing from an EXECUTE_NEVER
+#    data region.
 set -e
 TARGET="$1"
 if [ -e "$TARGET/lib/ld-uClibc.so.0" ]; then
@@ -70,6 +73,7 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/segv.c" -o "$TARGET/usr/bin/segv"
 	"$GCC" -mfdpic -O2 "$PROGS/fpbadsp.c" -o "$TARGET/usr/bin/fpbadsp"
 	"$GCC" -mfdpic -O2 "$PROGS/xregion.c" -o "$TARGET/usr/bin/xregion"
+	"$GCC" -mfdpic -O2 "$PROGS/mpufault.c" -o "$TARGET/usr/bin/mpufault"
 	"$GCC" -mfdpic -O2 "$PROGS/kstress.c" -o "$TARGET/usr/bin/kstress"
 	"$GCC" -mfdpic -O2 "$PROGS/lbench.c" -o "$TARGET/usr/bin/lbench"
 	"$GCC" -mfdpic -O2 "$PROGS/fbtest.c" -o "$TARGET/usr/bin/fbtest"
