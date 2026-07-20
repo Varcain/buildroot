@@ -24,6 +24,39 @@
  * argv[1] so the draw-buffer size can be swept without rebuilding the rootfs. */
 int lv_linux_fbdev_buf_lines = LV_LINUX_FBDEV_BUFFER_SIZE;
 
+/* oveRTOS: DMA2D framebuffer-blit (mirror of lxp_uapi.h). One ioctl offloads a whole
+ * rectangular flush to the coordinator's DMA2D engine — replacing the per-scanline
+ * pwrite storm the mmap fallback pays on engines with no free MPU region for the fb.
+ * OVE_DMA2D_FLUSH=0 forces the pwrite/memcpy path (for a same-boot A/B). */
+#define LXP_FBIO_DMA2D_BLIT 0x46f0ul
+struct lxp_fb_blit {
+    uint32_t src, src_stride, x, y, w, h;
+};
+
+static int g_fb_blit_state = -1; /* -1 unprobed, 0 unavailable, 1 available */
+
+static bool fb_dma2d_blit(int fbfd, const void * src, uint32_t src_stride,
+                          uint32_t x, uint32_t y, uint32_t w, uint32_t h)
+{
+    if(g_fb_blit_state == 0) {
+        return false;
+    }
+    if(g_fb_blit_state == -1) {
+        const char * e = getenv("OVE_DMA2D_FLUSH");
+        if(e && e[0] == '0') {
+            g_fb_blit_state = 0;
+            return false;
+        }
+    }
+    struct lxp_fb_blit b = { (uint32_t)(uintptr_t) src, src_stride, x, y, w, h };
+    if(ioctl(fbfd, LXP_FBIO_DMA2D_BLIT, &b) == 0) {
+        g_fb_blit_state = 1;
+        return true;
+    }
+    g_fb_blit_state = 0; /* no accelerator / rejected — stop trying */
+    return false;
+}
+
 #if LV_LINUX_FBDEV_BSD
     #include <sys/fcntl.h>
     #include <sys/consio.h>
@@ -412,10 +445,15 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
         uint32_t color_pos =
             (clipped_area.x1 - disp->offset_x) * px_size +
             (clipped_area.y1 - disp->offset_y) * disp->hor_res * px_size;
-        for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
-            write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size);
-            fb_pos += dsc->finfo.line_length;
-            color_pos += disp->hor_res * px_size;
+        uint32_t bh = (uint32_t)(clipped_area.y2 - clipped_area.y1 + 1);
+        if(!fb_dma2d_blit(dsc->fbfd, &color_p[color_pos], (uint32_t)(disp->hor_res * px_size),
+                          (uint32_t)(clipped_area.x1 + dsc->vinfo.xoffset),
+                          (uint32_t)(clipped_area.y1 + dsc->vinfo.yoffset), (uint32_t)w, bh)) {
+            for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
+                write_to_fb(dsc, fb_pos, &color_p[color_pos], w * px_size);
+                fb_pos += dsc->finfo.line_length;
+                color_pos += disp->hor_res * px_size;
+            }
         }
     }
     else {
@@ -426,10 +464,15 @@ static void flush_cb(lv_display_t * disp, const lv_area_t * area, uint8_t * colo
 
         color_p += y_offset * stride + x_offset * px_size;
 
-        for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
-            write_to_fb(dsc, fb_pos, color_p, w * px_size);
-            fb_pos += dsc->finfo.line_length;
-            color_p += stride;
+        uint32_t bh = (uint32_t)(clipped_area.y2 - clipped_area.y1 + 1);
+        if(!fb_dma2d_blit(dsc->fbfd, color_p, (uint32_t)stride,
+                          (uint32_t)(clipped_area.x1 + dsc->vinfo.xoffset),
+                          (uint32_t)(clipped_area.y1 + dsc->vinfo.yoffset), (uint32_t)w, bh)) {
+            for(int32_t y = clipped_area.y1; y <= clipped_area.y2; y++) {
+                write_to_fb(dsc, fb_pos, color_p, w * px_size);
+                fb_pos += dsc->finfo.line_length;
+                color_p += stride;
+            }
         }
     }
 
