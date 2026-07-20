@@ -1305,7 +1305,12 @@
     #define LV_LINUX_FBDEV_RENDER_MODE   LV_DISPLAY_RENDER_MODE_PARTIAL
     #define LV_LINUX_FBDEV_BUFFER_COUNT  0
     #define LV_LINUX_FBDEV_BUFFER_SIZE   60
-    #define LV_LINUX_FBDEV_MMAP 1
+    /* oveRTOS: mmap OFF — the DMA2D fb-blit (LXP_FBIO_DMA2D_BLIT) now handles the flush
+     * on every engine, so mapping the framebuffer into the guest (which spends an MPU
+     * region via map_device on engines where mmap succeeds, e.g. NuttX) is redundant.
+     * Dropping it reclaims that region and unifies all engines on the blit + pwrite
+     * fallback. */
+    #define LV_LINUX_FBDEV_MMAP 0
 #endif
 
 /** Use Nuttx to open window and handle touchscreen */

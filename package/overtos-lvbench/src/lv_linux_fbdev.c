@@ -53,7 +53,10 @@ static bool fb_dma2d_blit(int fbfd, const void * src, uint32_t src_stride,
         g_fb_blit_state = 1;
         return true;
     }
-    g_fb_blit_state = 0; /* no accelerator / rejected — stop trying */
+    if(errno == ENOSYS) {
+        g_fb_blit_state = 0; /* board has no DMA2D — fall back to pwrite for good */
+    }
+    /* A transient rejection just pwrites this one flush; the blit is retried next time. */
     return false;
 }
 
