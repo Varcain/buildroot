@@ -393,9 +393,11 @@
 #endif
 
 /** Accelerate blends, fills, etc. with STM32 DMA2D */
-#define LV_USE_DRAW_DMA2D 0
+#define LV_USE_DRAW_DMA2D 1
 #if LV_USE_DRAW_DMA2D
-    #define LV_DRAW_DMA2D_HAL_INCLUDE "stm32h7xx_hal.h"
+    /* oveRTOS: the overlaid unit forwards to /dev/dma2d by ioctl and touches no
+     * registers, so the HAL include is an empty shim (no CMSIS on this target). */
+    #define LV_DRAW_DMA2D_HAL_INCLUDE "ove_dma2d_hal_shim.h"
 
     /* if enabled, the user is required to call `lv_draw_dma2d_transfer_complete_interrupt_handler`
      * upon receiving the DMA2D global interrupt

@@ -30,6 +30,10 @@ define OVERTOS_LVBENCH_BUILD_CMDS
 	# engine. Copied here (not into dl/lvgl, which `ove download` re-clones) so it is tracked +
 	# survives a re-sync, matching how lv_conf.h/main.c are vendored.
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/lv_linux_fbdev.c $(@D)/src/drivers/display/fb/lv_linux_fbdev.c
+	# DMA2D offload: route LVGL's DMA2D draw unit through an ioctl on /dev/dma2d (the
+	# guest is unprivileged; the coordinator owns the peripheral). Same overlay pattern.
+	cp $(OVERTOS_LVBENCH_PKGDIR)/src/lv_draw_dma2d.c $(@D)/src/draw/dma2d/lv_draw_dma2d.c
+	cp $(OVERTOS_LVBENCH_PKGDIR)/src/ove_dma2d_hal_shim.h $(@D)/src/draw/dma2d/ove_dma2d_hal_shim.h
 	$(MAKE) -C $(@D) -f Makefile.lvbench $(TARGET_CONFIGURE_OPTS) LVGL_DIR=$(@D)
 endef
 
