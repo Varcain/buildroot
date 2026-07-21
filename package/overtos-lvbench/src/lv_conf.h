@@ -1304,7 +1304,15 @@
     #define LV_LINUX_FBDEV_BSD           0
     #define LV_LINUX_FBDEV_RENDER_MODE   LV_DISPLAY_RENDER_MODE_PARTIAL
     #define LV_LINUX_FBDEV_BUFFER_COUNT  0
-    #define LV_LINUX_FBDEV_BUFFER_SIZE   60
+    /* oveRTOS: full-screen (480x272) partial buffer = ONE render chunk per frame.
+     * The guest's per-chunk LVGL overhead (object re-iteration + draw-context setup)
+     * runs slow (QSPI-XIP + FDPIC + SDRAM), so minimizing chunk count cuts render ~23%
+     * on all 3 engines vs the stock 60-line default -- real F746: FreeRTOS 43->33,
+     * NuttX 40->31, Zephyr 39->30 ms (also +2 FPS, flush 3->2 ms). Smaller buffers are
+     * WORSE (16 lines -> 70 ms): render is per-chunk-overhead-bound, not bandwidth-bound.
+     * Single-buffered (BUFFER_COUNT 0) = 261 KB in the guest heap (fits all 3 pools).
+     * Still tunable at runtime via argv[1] (lv_linux_fbdev_buf_lines). */
+    #define LV_LINUX_FBDEV_BUFFER_SIZE   272
     /* oveRTOS: mmap OFF — the DMA2D fb-blit (LXP_FBIO_DMA2D_BLIT) now handles the flush
      * on every engine, so mapping the framebuffer into the guest (which spends an MPU
      * region via map_device on engines where mmap succeeds, e.g. NuttX) is redundant.
