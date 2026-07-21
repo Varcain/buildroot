@@ -24,13 +24,6 @@ static void on_end(const lv_demo_benchmark_summary_t *s)
 	 * is logged via LV_LOG inside summary_display (LV_USE_LOG + LV_LOG_PRINTF in lv_conf.h);
 	 * the summary screen it also builds is never flushed since we _exit right after. */
 	lv_demo_benchmark_summary_display(s);
-#if LV_USE_DRAW_DMA2D
-	/* Diagnostic: how much text actually reached the DMA2D glyph path. */
-	extern uint32_t ove_dma2d_label_tasks, ove_dma2d_glyphs, ove_dma2d_batches,
-		ove_dma2d_glyph_fallback;
-	printf("lvbench: dma2d text label_tasks=%u glyphs=%u batches=%u sw_fallback=%u\n",
-	       ove_dma2d_label_tasks, ove_dma2d_glyphs, ove_dma2d_batches, ove_dma2d_glyph_fallback);
-#endif
 	/* The summary's total_avg_* fields are SUMS over the scenes; the benchmark's own
 	 * "All scenes avg." divides them by valid_scene_cnt — do the same so this line is a
 	 * real average, not a per-scene sum. */
