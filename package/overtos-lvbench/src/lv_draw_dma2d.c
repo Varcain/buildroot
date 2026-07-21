@@ -107,9 +107,13 @@ static uint8_t g_stage[DMA2D_STAGE_SIZE] __attribute__((aligned(4)));
 static uint32_t g_batch_n;
 static uint32_t g_stage_off;
 static lv_layer_t * g_cur_layer; /* target layer for the label being iterated */
-/* Text (glyph) offload is opt-in (OVE_DMA2D_TEXT=1). The A8-glyph blend path is
- * still WIP: on real F746 the per-glyph DMA2D transfers do not complete, so it is
- * off by default and the label path falls back to software. */
+/* Text (glyph) offload is opt-in (OVE_DMA2D_TEXT=1) and OFF by default — NOT because
+ * it fails (it renders correctly: real F746 runs all 16 lvbench scenes, 64902 glyphs,
+ * 0 sw fallback) but because it is a PERF WASH: the batched A8 blends run render
+ * 39 -> 41 ms (every text scene slightly worse). The per-label SVC round-trip plus the
+ * per-glyph staging copy outweigh the HW blend, and the render is memory-bound anyway.
+ * (The earlier "transfers do not complete" note was a misdiagnosis — a too-short
+ * host-side stall timeout on a slow first scene + GDB halts killing the guest.) */
 static int g_text_on;
 
 /* Diagnostics (read + printed by main.c): how much text actually went to DMA2D. */
@@ -132,7 +136,8 @@ void lv_draw_dma2d_init(void)
         return;
     }
 
-    /* Text/glyph offload is opt-in while its on-target transfer bug is open. */
+    /* Text/glyph offload is opt-in — it renders correctly but is a perf wash, so it is
+     * off unless explicitly requested (see g_text_on). */
     const char * te = getenv("OVE_DMA2D_TEXT");
     g_text_on = (te && te[0] == '1');
 
