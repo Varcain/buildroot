@@ -1,10 +1,16 @@
 # SPDX-License-Identifier: MIT
 #
-# Build lv_demo_benchmark + LVGL into one static -mfdpic binary (lvbench) for the
-# oveRTOS Linux personality. Invoked by overtos-lvbench.mk from inside the
-# extracted LVGL tree (where main.c + lv_conf.h have been copied). LVGL's own
-# driver/demo .c files are #if-guarded, so compiling the whole src/ tree only
-# pulls in what lv_conf.h enables (fbdev, evdev, sw draw, benchmark).
+# Build lv_demo_benchmark + lv_demo_music + LVGL into static -mfdpic binaries
+# (lvbench, lvmusic) for the oveRTOS Linux personality. Invoked by
+# overtos-lvbench.mk from inside the extracted LVGL tree (where main.c +
+# main_music.c + lv_conf.h have been copied). LVGL's own driver/demo .c files
+# are #if-guarded, so compiling the whole src/ + demos/ tree only pulls in what
+# lv_conf.h enables (fbdev, evdev, sw draw, benchmark, music).
+#
+# The shared LVGL/demo tree is compiled once to objects; each app links its own
+# main against it. -ffunction-sections/-fdata-sections + --gc-sections drop the
+# unreferenced code/data per binary, so lvbench does not carry the music demo's
+# fonts/assets (and vice-versa) despite the shared lv_conf.h.
 
 LVGL_DIR ?= .
 CC       ?= gcc
@@ -15,13 +21,23 @@ override CFLAGS += -mfdpic -O2 -g0 -ffunction-sections -fdata-sections \
                    -Wno-unused-parameter -Wno-unused-variable
 override LDFLAGS += -Wl,--gc-sections
 
-SRCS := $(shell find $(LVGL_DIR)/src -name '*.c') \
-        $(shell find $(LVGL_DIR)/demos -name '*.c') \
-        $(LVGL_DIR)/main.c
+# Shared LVGL + demo objects (everything under src/ and demos/); the mains live
+# at the tree root and are added per-app below.
+LV_SRCS := $(shell find $(LVGL_DIR)/src -name '*.c') \
+           $(shell find $(LVGL_DIR)/demos -name '*.c')
+LV_OBJS := $(LV_SRCS:.c=.o)
 
-lvbench: $(SRCS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(SRCS) -o $@ -lm
+all: lvbench lvmusic
 
-.PHONY: clean
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+lvbench: $(LVGL_DIR)/main.o $(LV_OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ -lm
+
+lvmusic: $(LVGL_DIR)/main_music.o $(LV_OBJS)
+	$(CC) $(CFLAGS) $(LDFLAGS) $^ -o $@ -lm
+
+.PHONY: all clean
 clean:
-	rm -f lvbench
+	rm -f lvbench lvmusic $(LV_OBJS) $(LVGL_DIR)/main.o $(LVGL_DIR)/main_music.o

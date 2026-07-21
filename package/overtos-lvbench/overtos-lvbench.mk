@@ -21,6 +21,7 @@ OVERTOS_LVBENCH_LICENSE_FILES = LICENCE.txt
 # extract hook, or a re-sync would wipe it.)
 define OVERTOS_LVBENCH_BUILD_CMDS
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/main.c $(@D)/main.c
+	cp $(OVERTOS_LVBENCH_PKGDIR)/src/main_music.c $(@D)/main_music.c
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/lv_conf.h $(@D)/lv_conf.h
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/Makefile.lvbench $(@D)/Makefile.lvbench
 	# P3: overlay our patched fbdev driver (runtime mmap-or-pwrite fallback) onto the rsynced
@@ -40,6 +41,8 @@ endef
 define OVERTOS_LVBENCH_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/lvbench $(TARGET_DIR)/usr/bin/lvbench
 	$(TARGET_STRIP) --strip-unneeded $(TARGET_DIR)/usr/bin/lvbench
+	$(INSTALL) -D -m 0755 $(@D)/lvmusic $(TARGET_DIR)/usr/bin/lvmusic
+	$(TARGET_STRIP) --strip-unneeded $(TARGET_DIR)/usr/bin/lvmusic
 endef
 
 $(eval $(generic-package))
