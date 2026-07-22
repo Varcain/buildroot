@@ -1506,9 +1506,9 @@
         #define LV_DEMO_MUSIC_LANDSCAPE 1
         #define LV_DEMO_MUSIC_ROUND     0
         #define LV_DEMO_MUSIC_LARGE     0
-        /* Auto-advance tracks + animate the spectrum so a headless (no-touch)
-         * run is visually alive; touch still works via /dev/input/event0. */
-        #define LV_DEMO_MUSIC_AUTO_PLAY 1
+        /* Keep the stock interactive demo behavior: playback, track changes and
+         * navigation are driven by the touchscreen instead of a scripted timer. */
+        #define LV_DEMO_MUSIC_AUTO_PLAY 0
     #endif
 
     /** Vector graphic demo */
