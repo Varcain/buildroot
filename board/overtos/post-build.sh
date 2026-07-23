@@ -78,6 +78,7 @@ if [ -x "$GCC" ] && [ -n "$PROGS" ]; then
 	"$GCC" -mfdpic -O2 "$PROGS/lbench.c" -o "$TARGET/usr/bin/lbench"
 	"$GCC" -mfdpic -O2 "$PROGS/fbtest.c" -o "$TARGET/usr/bin/fbtest"
 	"$GCC" -mfdpic -O2 "$PROGS/evread.c" -o "$TARGET/usr/bin/evread"
+	"$GCC" -mfdpic -O2 "$PROGS/touchctl.c" -o "$TARGET/usr/bin/touchctl"
 	"$GCC" -mfdpic -O2 "$PROGS/nettest.c" -o "$TARGET/usr/bin/nettest"
 	# tlsprobe: mbedTLS crypto self-test (AES/GCM/SHA vectors) — needs the staged mbedtls.
 	if [ -f "$STAGING_DIR/usr/lib/libmbedcrypto.so" ] && [ -f "$PROGS/tlsprobe.c" ]; then
