@@ -33,7 +33,11 @@ endif
 # POSIX record locks.  Do not expose WAL, whose -shm protocol requires both.
 # Rollback journaling remains fully supported.
 ifeq ($(BR2_BINFMT_FDPIC),y)
-SQLITE_CFLAGS += -DSQLITE_OMIT_WAL
+SQLITE_CFLAGS += \
+	-DSQLITE_OMIT_WAL \
+	-DSQLITE_DEFAULT_LOOKASIDE=512,32 \
+	-DSQLITE_DEFAULT_CACHE_SIZE=-64 \
+	-DSQLITE_DEFAULT_PCACHE_INITSZ=-16
 endif
 
 ifeq ($(BR2_PACKAGE_SQLITE_SECURE_DELETE),y)
@@ -55,7 +59,9 @@ else
 SQLITE_CFLAGS += $(subst -Ofast,-O3,$(TARGET_CFLAGS))
 endif
 
-ifeq ($(BR2_PACKAGE_NCURSES)$(BR2_PACKAGE_READLINE),yy)
+ifeq ($(BR2_BINFMT_FDPIC),y)
+SQLITE_CONF_OPTS += --disable-readline
+else ifeq ($(BR2_PACKAGE_NCURSES)$(BR2_PACKAGE_READLINE),yy)
 SQLITE_DEPENDENCIES += ncurses readline
 SQLITE_CFLAGS  += -DHAVE_READLINE=1
 SQLITE_LDFLAGS += -lreadline -lncurses
