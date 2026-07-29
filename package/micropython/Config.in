@@ -26,6 +26,7 @@ if BR2_PACKAGE_MICROPYTHON_LIB
 config BR2_PACKAGE_MICROPYTHON_LIB_UNIXFFI
 	bool "micropython-lib unix-ffi modules"
 	default y
+	depends on !BR2_BINFMT_FDPIC
 	select BR2_PACKAGE_LIBFFI
 	select BR2_PACKAGE_PCRE2 # runtime
 	help
@@ -33,6 +34,9 @@ config BR2_PACKAGE_MICROPYTHON_LIB_UNIXFFI
 
 	  These provide additional functionality to MicroPython in
 	  standard environments.
+
+comment "micropython-lib unix-ffi modules need a non-FDPIC toolchain"
+	depends on BR2_BINFMT_FDPIC
 
 endif # BR2_PACKAGE_MICROPYTHON_LIB
 

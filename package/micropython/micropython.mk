@@ -46,12 +46,18 @@ MICROPYTHON_MAKE_OPTS += \
 	LDFLAGS_EXTRA="$(TARGET_LDFLAGS)" \
 	CWARN=
 
-# Support libffi in MicroPython itself; separate from unix-ffi libraries
+# MicroPython's Unix FFI assumes direct function pointers. FDPIC uses
+# function descriptors, so calls through modffi are not ABI-safe.
+ifeq ($(BR2_BINFMT_FDPIC),y)
+MICROPYTHON_MAKE_OPTS += MICROPY_PY_FFI=0
+else
+# Support libffi in MicroPython itself; separate from unix-ffi libraries.
 ifeq ($(BR2_PACKAGE_LIBFFI),y)
 MICROPYTHON_DEPENDENCIES += host-pkgconf libffi
 MICROPYTHON_MAKE_OPTS += MICROPY_PY_FFI=1
 else
 MICROPYTHON_MAKE_OPTS += MICROPY_PY_FFI=0
+endif
 endif
 
 define MICROPYTHON_BUILD_CMDS
@@ -77,6 +83,7 @@ define MICROPYTHON_COLLECT_LIBS
 endef
 
 define MICROPYTHON_INSTALL_LIBS
+	rm -rf $(TARGET_DIR)/usr/lib/micropython
 	$(INSTALL) -d -m 0755 $(TARGET_DIR)/usr/lib/micropython
 	cp -a $(@D)/.built_pylib/* $(TARGET_DIR)/usr/lib/micropython
 endef
