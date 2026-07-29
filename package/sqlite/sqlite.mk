@@ -29,6 +29,13 @@ ifeq ($(BR2_PACKAGE_SQLITE_ENABLE_UNLOCK_NOTIFY),y)
 SQLITE_CFLAGS += -DSQLITE_ENABLE_UNLOCK_NOTIFY
 endif
 
+# The FDPIC Linux personality does not provide file-backed shared mmap or
+# POSIX record locks.  Do not expose WAL, whose -shm protocol requires both.
+# Rollback journaling remains fully supported.
+ifeq ($(BR2_BINFMT_FDPIC),y)
+SQLITE_CFLAGS += -DSQLITE_OMIT_WAL
+endif
+
 ifeq ($(BR2_PACKAGE_SQLITE_SECURE_DELETE),y)
 SQLITE_CFLAGS += -DSQLITE_SECURE_DELETE
 endif
