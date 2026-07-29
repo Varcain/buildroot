@@ -29,6 +29,13 @@ ifeq ($(BR2_xtensa),y)
 MICROPYTHON_CFLAGS += -DMICROPY_NLR_SETJMP=1
 endif
 
+# The FDPIC/NOMMU personality provides a 512 KiB per-process allocation
+# arena.  Leave room for libc, stacks and extension libraries around the
+# interpreter's GC heap.
+ifeq ($(BR2_BINFMT_FDPIC),y)
+MICROPYTHON_CFLAGS += -DMICROPY_UNIX_GC_HEAP_SIZE=327680
+endif
+
 # When building from a tarball we don't have some of the dependencies that are in
 # the git repository as submodules
 MICROPYTHON_MAKE_OPTS += \

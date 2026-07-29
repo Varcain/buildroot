@@ -1,0 +1,35 @@
+From 8a13bed5747f7e4d1670ecb77c380d0e3cf6282b Mon Sep 17 00:00:00 2001
+From: Kamil Lulko <kamil.lulko@gmail.com>
+Date: Wed, 29 Jul 2026 16:20:00 +0200
+Subject: [PATCH] unix: make default GC heap size configurable
+
+The Unix port always reserves a 1 MiB GC heap on 32-bit targets.  NOMMU
+systems can have a smaller per-process allocation arena, in which case
+malloc() returns NULL and the unchecked value is passed to gc_init().
+
+Keep the existing default while allowing constrained targets to provide a
+safe value at build time.
+
+Upstream: N/A [configuration hook for constrained FDPIC systems]
+Signed-off-by: Kamil Lulko <kamil.lulko@gmail.com>
+---
+ ports/unix/main.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/ports/unix/main.c b/ports/unix/main.c
+index 834f12ba3..977bc0217 100644
+--- a/ports/unix/main.c
++++ b/ports/unix/main.c
+@@ -63,8 +63,11 @@ static uint emit_opt = MP_EMIT_OPT_NONE;
+ 
+ #if MICROPY_ENABLE_GC
+ // Heap size of GC heap (if enabled)
++#ifndef MICROPY_UNIX_GC_HEAP_SIZE
+ // Make it larger on a 64 bit machine, because pointers are larger.
+-long heap_size = 1024 * 1024 * (sizeof(mp_uint_t) / 4);
++#define MICROPY_UNIX_GC_HEAP_SIZE (1024 * 1024 * (sizeof(mp_uint_t) / 4))
++#endif
++long heap_size = MICROPY_UNIX_GC_HEAP_SIZE;
+ #endif
+ 
+ // Number of heaps to assign by default if MICROPY_GC_SPLIT_HEAP=1
