@@ -29,14 +29,32 @@ ifeq ($(BR2_PACKAGE_SQLITE_ENABLE_UNLOCK_NOTIFY),y)
 SQLITE_CFLAGS += -DSQLITE_ENABLE_UNLOCK_NOTIFY
 endif
 
-# The FDPIC Linux personality does not provide file-backed shared mmap or
-# POSIX record locks.  Do not expose WAL, whose -shm protocol requires both.
-# Rollback journaling remains fully supported.
+# Keep SQLite inside the FDPIC personality's 512 KiB process arena:
+#
+# - WAL is unavailable without shared file mappings and POSIX record locks.
+# - Small page/lookaside caches retain useful locality without consuming the
+#   arena before a query starts.
+# - A 16-page sorter PMA spills at 64 KiB instead of the upstream 1 MiB
+#   default, which otherwise reaches ENOMEM before external sorting begins.
+# - Worker sort threads are disabled because every FDPIC thread needs its own
+#   bounded stack in the same process region.
+# - Sorter journals stay in the bounded RAM-backed /tmp. Full temporary
+#   databases (including VACUUM's complete copy) prefer /data and fall back to
+#   the normal temporary-directory list when removable media is absent.
+# - FAT cannot portably unlink an open file. Deferring anonymous-temp deletion
+#   until close gives all three RTOS filesystem backends the same lifetime
+#   semantics and avoids leaked etilqs_* files.
 ifeq ($(BR2_BINFMT_FDPIC),y)
 SQLITE_CFLAGS += \
 	-DSQLITE_OMIT_WAL \
 	-DSQLITE_DEFAULT_LOOKASIDE=512,32 \
+	-DSQLITE_TEMP_STORE=1 \
 	-DSQLITE_DEFAULT_CACHE_SIZE=-64 \
+	-DSQLITE_DEFAULT_TEMP_CACHE_SIZE=-16 \
+	-DSQLITE_SORTER_PMASZ=16 \
+	-DSQLITE_MAX_WORKER_THREADS=0 \
+	-DSQLITE_TEMP_DB_DIRECTORY=/data \
+	-DSQLITE_UNLINK_AFTER_CLOSE \
 	-DSQLITE_DEFAULT_PCACHE_INITSZ=-16
 endif
 

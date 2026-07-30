@@ -1,0 +1,131 @@
+From 3a45716042389cb05d74b6fd1b36dc76099cf20e Mon Sep 17 00:00:00 2001
+From: Kamil Lulko <kamil.lulko@gmail.com>
+Date: Thu, 30 Jul 2026 06:30:00 +0200
+Subject: [PATCH] unix-vfs: route temporary databases separately
+
+Small embedded systems may provide a bounded RAM-backed /tmp alongside a
+larger persistent scratch volume. Sorter journals fit the former and benefit
+from its latency, while a file-backed temporary database such as VACUUM's
+complete copy can be as large as its input.
+
+Add SQLITE_TEMP_DB_DIRECTORY as an optional candidate used only for
+SQLITE_OPEN_TEMP_DB. Explicit sqlite3_temp_directory and environment
+overrides retain priority, and the normal directory list remains a fallback
+when the configured volume is unavailable.
+
+Signed-off-by: Kamil Lulko <kamil.lulko@gmail.com>
+---
+ sqlite3.c | 44 ++++++++++++++++++++++++++++++++++----------
+ 1 file changed, 34 insertions(+), 10 deletions(-)
+
+diff --git a/sqlite3.c b/sqlite3.c
+index a295c4ac7..930d21d6b 100644
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -44313,7 +44313,7 @@ static int robust_open(const char *z, int f, mode_t m){
+ }
+ 
+ /* Forward declaration */
+-static int unixGetTempname(int nBuf, char *zBuf);
++static int unixGetTempname(int nBuf, char *zBuf, int eType);
+ #if !defined(SQLITE_WASI) && !defined(SQLITE_OMIT_WAL)
+  static int unixFcntlExternalReader(unixFile*, int*);
+ #endif
+@@ -44382,7 +44382,8 @@ static int unixFileControl(sqlite3_file *id, int op, void *pArg){
+     case SQLITE_FCNTL_TEMPFILENAME: {
+       char *zTFile = sqlite3_malloc64( pFile->pVfs->mxPathname );
+       if( zTFile ){
+-        unixGetTempname(pFile->pVfs->mxPathname, zTFile);
++        unixGetTempname(pFile->pVfs->mxPathname, zTFile,
++                        SQLITE_OPEN_TEMP_JOURNAL);
+         *(char**)pArg = zTFile;
+       }
+       return SQLITE_OK;
+@@ -46449,6 +46449,11 @@
+ static const char *azTempDirs[] = {
+   0,
+   0,
++#ifdef SQLITE_TEMP_DB_DIRECTORY
++# define SQLITE_TEMP_DB_DIRECTORY_STRING_(x) #x
++# define SQLITE_TEMP_DB_DIRECTORY_STRING(x) SQLITE_TEMP_DB_DIRECTORY_STRING_(x)
++  SQLITE_TEMP_DB_DIRECTORY_STRING(SQLITE_TEMP_DB_DIRECTORY),
++#endif
+   "/var/tmp",
+   "/usr/tmp",
+   "/tmp",
+@@ -46467,12 +46472,34 @@ static void unixTempFileInit(void){
+ ** Return the name of a directory in which to put temporary files.
+ ** If no suitable temporary file directory can be found, return NULL.
+ */
+-static const char *unixTempFileDir(void){
+-  unsigned int i = 0;
++static const char *unixTempFileDir(int eType){
++  unsigned int i;
+   struct stat buf;
+   const char *zDir = sqlite3_temp_directory;
+ 
+-  while(1){
++  if( zDir!=0
++#if OS_VXWORKS
++   && zDir[0]=='/'
++#endif
++   && osStat(zDir, &buf)==0
++   && S_ISDIR(buf.st_mode)
++   && osAccess(zDir, 03)==0
++  ){
++    return zDir;
++  }
++
++  for(i=0; i<sizeof(azTempDirs)/sizeof(azTempDirs[0]); i++){
++    zDir = azTempDirs[i];
++#ifdef SQLITE_TEMP_DB_DIRECTORY
++    /*
++    ** The third candidate is reserved for file-backed temporary databases
++    ** (for example VACUUM's full database copy). Keep sorter journals and
++    ** other bounded scratch files on the normal temporary filesystem.
++    */
++    if( i==2 && eType!=SQLITE_OPEN_TEMP_DB ) continue;
++#else
++    UNUSED_PARAMETER(eType);
++#endif
+     if( zDir!=0
+ #if OS_VXWORKS
+      && zDir[0]=='/'
+@@ -46483,8 +46510,6 @@ static const char *unixTempFileDir(void){
+     ){
+       return zDir;
+     }
+-    if( i>=sizeof(azTempDirs)/sizeof(azTempDirs[0]) ) break;
+-    zDir = azTempDirs[i++];
+   }
+   return 0;
+ }
+@@ -46494,7 +46519,7 @@ static const char *unixTempFileDir(void){
+ ** by the calling process and must be big enough to hold at least
+ ** pVfs->mxPathname bytes.
+ */
+-static int unixGetTempname(int nBuf, char *zBuf){
++static int unixGetTempname(int nBuf, char *zBuf, int eType){
+   const char *zDir;
+   int iLimit = 0;
+   int rc = SQLITE_OK;
+@@ -46507,7 +46532,7 @@ static int unixGetTempname(int nBuf, char *zBuf){
+   SimulateIOError( return SQLITE_IOERR );
+ 
+   sqlite3_mutex_enter(sqlite3MutexAlloc(SQLITE_MUTEX_STATIC_TEMPDIR));
+-  zDir = unixTempFileDir();
++  zDir = unixTempFileDir(eType);
+   if( zDir==0 ){
+     rc = SQLITE_IOERR_GETTEMPPATH;
+   }else{
+@@ -46834,7 +46859,7 @@ static int unixOpen(
+   }else if( !zName ){
+     /* If zName is NULL, the upper layer is requesting a temp file. */
+     assert(isDelete && !isNewJrnl);
+-    rc = unixGetTempname(pVfs->mxPathname, zTmpname);
++    rc = unixGetTempname(pVfs->mxPathname, zTmpname, eType);
+     if( rc!=SQLITE_OK ){
+       return rc;
+     }
+-- 
+2.50.1
