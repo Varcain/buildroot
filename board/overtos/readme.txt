@@ -35,9 +35,13 @@ Two equivalent stress drivers are installed for cross-engine comparisons:
 
 Both run lvmusic at nice -5, an HTTP receive stream at nice 10, and the
 SQLite/SD transaction workload at nice 0. They wait for the music-demo intro,
-inject the Play touch, use DELETE/FULL/MEMORY SQLite pragmas, retain 128 live
-rows, VACUUM every 20 transactions, and print delimited /proc/rt_scope and
-/proc/lxp_fs snapshots. The shell driver uses wget/sqlite3; the Lua driver uses
-LuaSocket/LuaDBI and the NOMMU process module. The default duration is 300 s.
-Both stop SQLite at a completed transaction boundary instead of terminating it
-during FAT I/O, so the resulting database remains recoverable and auditable.
+inject the Play touch, use DELETE journaling with FULL synchronization and the
+target-wide file-backed temporary-storage policy, retain 128 live rows, VACUUM
+every 20 transactions, and print delimited /proc/rt_scope and /proc/lxp_fs
+snapshots. The shell driver uses wget/sqlite3. The Lua driver uses LuaSocket and
+LuaDBI directly from its controller, avoiding a persistent database-worker
+process slot; only VACUUM runs in a short-lived sqlite3 process because the Lua
+runtime and VACUUM's complete temporary image do not fit together in one FDPIC
+process arena. The default duration is 300 s. Both stop SQLite at a completed
+transaction boundary instead of terminating it during FAT I/O, so the
+resulting database remains recoverable and auditable.

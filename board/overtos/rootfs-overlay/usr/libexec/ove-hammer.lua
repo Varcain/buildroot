@@ -4,20 +4,17 @@ local socket = require("socket")
 
 local mode = arg[1]
 local DBI, cjson, lfs, process
-if mode == "database" then
-    DBI = require("DBI")
-    cjson = require("cjson")
-    lfs = require("lfs")
-elseif mode == "network" then
+if mode == "network" then
     cjson = require("cjson")
     lfs = require("lfs")
 else
+    DBI = require("DBI")
     cjson = require("cjson")
+    lfs = require("lfs")
     process = require("ove.process")
 end
 
 local stop_path = "/tmp/ove-hammer.stop"
-local database_ready_path = "/tmp/ove-lua-db-ready"
 
 local function stopped()
     return lfs.attributes(stop_path) ~= nil
@@ -47,56 +44,72 @@ local function sql_exec(database, sql)
     return true
 end
 
-local function database_worker()
-    local path = "/data/.ove-hammer-lua.db"
+local function connect_database(path)
+    local database, err = DBI.Connect("SQLite3", path)
+    if not database then return nil, "open: " .. tostring(err) end
+    -- LuaDBI defaults to an implicit transaction. This workload owns explicit
+    -- BEGIN IMMEDIATE/COMMIT boundaries, so switch the binding to autocommit.
+    database:autocommit(true)
+    local ok, why = sql_exec(database, "PRAGMA journal_mode=DELETE")
+    if not ok then why = "journal_mode: " .. tostring(why) end
+    if ok then
+        ok, why = sql_exec(database, "PRAGMA synchronous=FULL")
+        if not ok then why = "synchronous: " .. tostring(why) end
+    end
+    if not ok then
+        database:close()
+        return nil, why
+    end
+    return database
+end
+
+local function initialize_database(path)
     os.remove(path)
     os.remove(path .. "-journal")
     os.remove(path .. "-wal")
     os.remove(path .. "-shm")
-
-    local database, err = DBI.Connect("SQLite3", path)
-    assert(database, err)
-    -- LuaDBI defaults to an implicit transaction. This workload owns explicit
-    -- BEGIN IMMEDIATE/COMMIT boundaries, so switch the binding to autocommit.
-    database:autocommit(true)
-    assert(sql_exec(database, "PRAGMA journal_mode=DELETE"))
-    assert(sql_exec(database, "PRAGMA synchronous=FULL"))
-    assert(sql_exec(database, "PRAGMA temp_store=MEMORY"))
-    assert(sql_exec(database, "CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB)"))
-    assert(sql_exec(database, "CREATE TABLE meta(n INTEGER NOT NULL)"))
-    assert(sql_exec(database, "INSERT INTO meta VALUES(0)"))
-    write_file(database_ready_path, "ready\n")
-
-    local insert = "INSERT INTO events(payload) VALUES" ..
-        "(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024))," ..
-        "(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024))"
-    local transactions = 0
-    local started = socket.gettime()
-    local failure
-    while not stopped() do
-        local ok, why = sql_exec(database, "BEGIN IMMEDIATE")
-        if ok then ok, why = sql_exec(database, insert) end
-        if ok then ok, why = sql_exec(database, "UPDATE meta SET n=n+8") end
-        if ok then
-            ok, why = sql_exec(database,
-                "DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events)")
-        end
-        if ok then ok, why = sql_exec(database, "COMMIT") end
-        if not ok then
-            sql_exec(database, "ROLLBACK")
-            failure = tostring(why)
-            break
-        end
-        transactions = transactions + 1
-        if transactions % 20 == 0 then
-            local vacuum_ok, vacuum_err = sql_exec(database, "VACUUM")
-            if not vacuum_ok then
-                failure = tostring(vacuum_err)
-                break
-            end
-        end
+    local database, err = connect_database(path)
+    if not database then return nil, err end
+    local ok, why = sql_exec(database,
+        "CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB)")
+    if ok then ok, why = sql_exec(database, "CREATE TABLE meta(n INTEGER NOT NULL)") end
+    if ok then ok, why = sql_exec(database, "INSERT INTO meta VALUES(0)") end
+    if not ok then
+        database:close()
+        return nil, why
     end
+    return database
+end
 
+local insert_sql = "INSERT INTO events(payload) VALUES" ..
+    "(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024))," ..
+    "(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024))"
+
+local function database_transaction(database)
+    local ok, why = sql_exec(database, "BEGIN IMMEDIATE")
+    if not ok then why = "begin: " .. tostring(why) end
+    if ok then
+        ok, why = sql_exec(database, insert_sql)
+        if not ok then why = "insert: " .. tostring(why) end
+    end
+    if ok then
+        ok, why = sql_exec(database, "UPDATE meta SET n=n+8")
+        if not ok then why = "update: " .. tostring(why) end
+    end
+    if ok then
+        ok, why = sql_exec(database,
+            "DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events)")
+        if not ok then why = "delete: " .. tostring(why) end
+    end
+    if ok then
+        ok, why = sql_exec(database, "COMMIT")
+        if not ok then why = "commit: " .. tostring(why) end
+    end
+    if not ok then sql_exec(database, "ROLLBACK") end
+    return ok, why
+end
+
+local function database_integrity(database)
     local integrity = "unavailable"
     local statement = database:prepare("PRAGMA integrity_check")
     if statement and statement:execute() then
@@ -104,14 +117,7 @@ local function database_worker()
         if row then integrity = tostring(row[1]) end
         statement:close()
     end
-    database:close()
-    write_file("/tmp/ove-lua-db-result.json", cjson.encode({
-        transactions = transactions,
-        rows = transactions * 8,
-        elapsed_s = socket.gettime() - started,
-        integrity = integrity,
-        error = failure,
-    }) .. "\n")
+    return integrity
 end
 
 local function network_worker()
@@ -154,9 +160,8 @@ end
 
 local function controller(duration)
     os.remove(stop_path)
-    os.remove(database_ready_path)
-    os.remove("/tmp/ove-lua-db-result.json")
     os.remove("/tmp/ove-lua-net-result.json")
+    os.remove("/tmp/ove-lua-vacuum.err")
 
     local lvmusic = assert(process.spawn("/usr/bin/lvmusic", {}, {
         stdout = "/dev/console",
@@ -168,36 +173,82 @@ local function controller(duration)
     assert(wait_for(touch, socket.gettime() + 15) == 0)
     socket.sleep(2)
 
-    local database = assert(process.spawn("/usr/bin/lua", {arg[0], "database"}))
-    assert(process.setpriority(database, 0))
-    local ready_deadline = socket.gettime() + 30
-    while not read_file(database_ready_path) do
-        local result, status, kind = process.wait(database, true)
-        assert(result == 0, string.format("database setup failed: %s %s", status, kind))
-        assert(socket.gettime() < ready_deadline, "database setup timed out")
-        socket.sleep(0.1)
-    end
+    local path = "/data/.ove-hammer-lua.db"
+    local database, database_err = initialize_database(path)
+    assert(database, database_err)
     local network = assert(process.spawn("/usr/bin/lua", {arg[0], "network"}))
     assert(process.setpriority(network, 10))
 
-    print(string.format("__HAMMER_BEGIN__:lua duration=%d lvmusic=%d network=%d sqlite=%d",
-        duration, lvmusic, network, database))
+    print(string.format("__HAMMER_BEGIN__:lua duration=%d lvmusic=%d network=%d sqlite=controller",
+        duration, lvmusic, network))
     print("__RT_SCOPE_BEFORE__")
     io.write(read_file("/proc/rt_scope") or "available 0\n")
     print("__RT_SCOPE_BEFORE_END__")
-    socket.sleep(duration)
+
+    local started = socket.gettime()
+    local deadline = started + duration
+    local transactions = 0
+    local failure
+    while socket.gettime() < deadline do
+        local ok, why = database_transaction(database)
+        if not ok then
+            failure = tostring(why)
+            break
+        end
+        transactions = transactions + 1
+        if transactions % 20 == 0 and socket.gettime() < deadline then
+            -- Lua and SQLite cannot hold VACUUM's complete temporary image in
+            -- one FDPIC arena. Use a short-lived CLI arena, then reopen the
+            -- database that VACUUM atomically replaced.
+            database:close()
+            database = nil
+            collectgarbage("collect")
+            local vacuum, vacuum_err = process.spawn(
+                "/usr/bin/sqlite3", {path, "VACUUM;"}, {
+                    stdout = "/dev/null",
+                    stderr = "/tmp/ove-lua-vacuum.err",
+                })
+            if not vacuum then
+                failure = "VACUUM spawn: " .. tostring(vacuum_err)
+                break
+            end
+            local status, kind = wait_for(vacuum, socket.gettime() + 180)
+            if status == nil then
+                process.kill(vacuum, process.SIGKILL)
+                wait_for(vacuum, socket.gettime() + 10)
+                failure = "VACUUM " .. tostring(kind)
+                break
+            end
+            if status ~= 0 then
+                failure = string.format("VACUUM exit=%s kind=%s", status, kind)
+                break
+            end
+            database, database_err = connect_database(path)
+            if not database then
+                failure = tostring(database_err)
+                break
+            end
+        end
+    end
     write_file(stop_path, "stop\n")
 
-    local deadline = socket.gettime() + 120
-    local db_status, db_kind = wait_for(database, deadline)
-    local net_status, net_kind = wait_for(network, deadline)
-    if not db_status then process.kill(database, process.SIGKILL) end
+    if not database then database, database_err = connect_database(path) end
+    local integrity = database and database_integrity(database) or "unavailable"
+    if database then database:close() end
+    local elapsed = socket.gettime() - started
+
+    local net_status, net_kind = wait_for(network, socket.gettime() + 120)
     if not net_status then process.kill(network, process.SIGKILL) end
     process.kill(lvmusic, process.SIGKILL)
     wait_for(lvmusic, socket.gettime() + 10)
 
-    print("__HAMMER_SQLITE__:" .. (read_file("/tmp/ove-lua-db-result.json") or
-        cjson.encode({error = db_kind or "missing result"}) .. "\n"))
+    print("__HAMMER_SQLITE__:" .. cjson.encode({
+        transactions = transactions,
+        rows = transactions * 8,
+        elapsed_s = elapsed,
+        integrity = integrity,
+        error = failure,
+    }))
     print("__HAMMER_NETWORK__:" .. (read_file("/tmp/ove-lua-net-result.json") or
         cjson.encode({error = net_kind or "missing result"}) .. "\n"))
     print("__RT_SCOPE_AFTER__")
@@ -209,9 +260,7 @@ local function controller(duration)
     print("__HAMMER_END__:lua")
 end
 
-if mode == "database" then
-    database_worker()
-elseif mode == "network" then
+if mode == "network" then
     network_worker()
 else
     controller(tonumber(arg[1]) or 300)
