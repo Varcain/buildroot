@@ -39,3 +39,5 @@ inject the Play touch, use DELETE/FULL/MEMORY SQLite pragmas, retain 128 live
 rows, VACUUM every 20 transactions, and print delimited /proc/rt_scope and
 /proc/lxp_fs snapshots. The shell driver uses wget/sqlite3; the Lua driver uses
 LuaSocket/LuaDBI and the NOMMU process module. The default duration is 300 s.
+Both stop SQLite at a completed transaction boundary instead of terminating it
+during FAT I/O, so the resulting database remains recoverable and auditable.

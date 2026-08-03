@@ -5,62 +5,74 @@
 # LuaSocket and LuaDBI; this version deliberately exercises Hush and CLI tools.
 
 duration="${1:-300}"
-plan=/data/.ove-hammer-plan.sql
 database=/data/.ove-hammer-shell.db
-
-make_plan()
-{
-	awk 'BEGIN {
-		print ".bail on"
-		print ".output /dev/null"
-		print "PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;PRAGMA temp_store=MEMORY;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);"
-		print ".output /tmp/ove-shell-db-ok"
-		txn="BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);SELECT 1;COMMIT;"
-		for (i=1; i<=20000; i++) {
-			print txn
-			if (i%20 == 0) print "VACUUM;"
-		}
-	}' >"$plan"
-}
+transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;SELECT 1;'
 
 rm -f /tmp/ove-hammer.stop /tmp/ove-shell-db-ok /tmp/ove-shell-db-err
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
-if [ ! -s "$plan" ]; then
-	printf '__HAMMER_SETUP__:generating-sql-plan\n'
-	make_plan || exit 2
-fi
 
-nice -n -5 /usr/bin/lvmusic &
+/usr/bin/sqlite3 "$database" \
+	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;PRAGMA temp_store=MEMORY;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
+	>/dev/null 2>/tmp/ove-shell-db-err || exit 4
+
+/usr/bin/lvmusic >/dev/console 2>&1 &
 lv_pid=$!
+/usr/bin/renice -n -5 -p "$lv_pid" >/dev/null || exit 5
 # Let the demo intro reach the player screen before injecting the Play tap.
 sleep 15
 /usr/bin/touchctl tap 120 160 1500 || exit 3
 sleep 2
 
-nice -n 10 wget -q -T 420 -O /dev/null http://172.1.1.1:8082/stream &
-net_pid=$!
-nice -n 0 sqlite3 "$database" <"$plan" >/tmp/ove-shell-db-out 2>/tmp/ove-shell-db-err &
-db_pid=$!
-
-printf '__HAMMER_BEGIN__:shell duration=%s lvmusic=%s network=%s sqlite=%s\n' \
-	"$duration" "$lv_pid" "$net_pid" "$db_pid"
 printf '__RT_SCOPE_BEFORE__\n'
 cat /proc/rt_scope
 printf '__RT_SCOPE_BEFORE_END__\n'
 
-sleep "$duration"
+/usr/bin/wget -q -T 420 -O /dev/null \
+	"http://172.1.1.1:8082/stream?seconds=$duration" &
+net_pid=$!
+/usr/bin/renice -n 10 -p "$net_pid" >/dev/null || exit 6
 
-kill -9 "$net_pid" "$db_pid" "$lv_pid" 2>/dev/null
+printf '__HAMMER_BEGIN__:shell duration=%s lvmusic=%s network=%s\n' \
+	"$duration" "$lv_pid" "$net_pid"
+
+# Keep the controller as the database worker so the SSH workload does not need
+# another persistent process region.  Each CLI invocation exits only after a
+# complete transaction.  The uptime deadline is checked at transaction and
+# VACUUM boundaries, so the driver never kills SQLite while FAT I/O is active.
+submitted=0
+IFS=' ' read -r uptime ignored </proc/uptime
+deadline=$((${uptime%.*} + duration))
+while :; do
+	IFS=' ' read -r uptime ignored </proc/uptime
+	[ "${uptime%.*}" -ge "$deadline" ] && break
+	if ! /usr/bin/sqlite3 "$database" "$transaction" \
+		>>/tmp/ove-shell-db-ok 2>>/tmp/ove-shell-db-err; then
+		printf '__HAMMER_SQLITE_ERROR__:transaction=%s\n' "$((submitted + 1))"
+		break
+	fi
+	submitted=$((submitted + 1))
+	if [ $((submitted % 20)) -eq 0 ]; then
+		IFS=' ' read -r uptime ignored </proc/uptime
+		[ "${uptime%.*}" -ge "$deadline" ] && break
+		if ! /usr/bin/sqlite3 "$database" 'VACUUM;' \
+			>/dev/null 2>>/tmp/ove-shell-db-err; then
+			printf '__HAMMER_SQLITE_ERROR__:vacuum_after=%s\n' "$submitted"
+			break
+		fi
+	fi
+done
 wait "$net_pid" 2>/dev/null
-wait "$db_pid" 2>/dev/null
+kill -9 "$lv_pid" 2>/dev/null
 wait "$lv_pid" 2>/dev/null
 
 transactions=0
 if [ -f /tmp/ove-shell-db-ok ]; then
-	transactions="$(wc -l </tmp/ove-shell-db-ok)"
+	while IFS= read -r ignored; do
+		transactions=$((transactions + 1))
+	done </tmp/ove-shell-db-ok
 fi
 printf '__HAMMER_SQLITE__:transactions=%s rows=%s\n' "$transactions" "$((transactions * 8))"
-sqlite3 "$database" 'PRAGMA integrity_check;SELECT n FROM meta;SELECT count(*) FROM events;'
+/usr/bin/sqlite3 "$database" 'PRAGMA integrity_check;SELECT n FROM meta;SELECT count(*) FROM events;'
 printf '__HAMMER_DB_ERROR_BYTES__:'
 wc -c </tmp/ove-shell-db-err
 printf '__RT_SCOPE_AFTER__\n'

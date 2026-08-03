@@ -17,6 +17,7 @@ else
 end
 
 local stop_path = "/tmp/ove-hammer.stop"
+local database_ready_path = "/tmp/ove-lua-db-ready"
 
 local function stopped()
     return lfs.attributes(stop_path) ~= nil
@@ -64,6 +65,7 @@ local function database_worker()
     assert(sql_exec(database, "CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB)"))
     assert(sql_exec(database, "CREATE TABLE meta(n INTEGER NOT NULL)"))
     assert(sql_exec(database, "INSERT INTO meta VALUES(0)"))
+    write_file(database_ready_path, "ready\n")
 
     local insert = "INSERT INTO events(payload) VALUES" ..
         "(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024))," ..
@@ -98,7 +100,7 @@ local function database_worker()
     local integrity = "unavailable"
     local statement = database:prepare("PRAGMA integrity_check")
     if statement and statement:execute() then
-        local row = statement:fetch({}, "n")
+        local row = statement:fetch(false)
         if row then integrity = tostring(row[1]) end
         statement:close()
     end
@@ -152,20 +154,31 @@ end
 
 local function controller(duration)
     os.remove(stop_path)
+    os.remove(database_ready_path)
     os.remove("/tmp/ove-lua-db-result.json")
     os.remove("/tmp/ove-lua-net-result.json")
 
-    local lvmusic = assert(process.spawn("/usr/bin/lvmusic", {}))
+    local lvmusic = assert(process.spawn("/usr/bin/lvmusic", {}, {
+        stdout = "/dev/console",
+        stderr = "/dev/console",
+    }))
     assert(process.setpriority(lvmusic, -5))
     socket.sleep(15)
     local touch = assert(process.spawn("/usr/bin/touchctl", {"tap", "120", "160", "1500"}))
     assert(wait_for(touch, socket.gettime() + 15) == 0)
     socket.sleep(2)
 
-    local network = assert(process.spawn("/usr/bin/lua", {arg[0], "network"}))
-    assert(process.setpriority(network, 10))
     local database = assert(process.spawn("/usr/bin/lua", {arg[0], "database"}))
     assert(process.setpriority(database, 0))
+    local ready_deadline = socket.gettime() + 30
+    while not read_file(database_ready_path) do
+        local result, status, kind = process.wait(database, true)
+        assert(result == 0, string.format("database setup failed: %s %s", status, kind))
+        assert(socket.gettime() < ready_deadline, "database setup timed out")
+        socket.sleep(0.1)
+    end
+    local network = assert(process.spawn("/usr/bin/lua", {arg[0], "network"}))
+    assert(process.setpriority(network, 10))
 
     print(string.format("__HAMMER_BEGIN__:lua duration=%d lvmusic=%d network=%d sqlite=%d",
         duration, lvmusic, network, database))
