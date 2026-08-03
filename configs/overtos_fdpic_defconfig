@@ -9,6 +9,25 @@ BR2_ROOTFS_OVERLAY="board/overtos/rootfs-overlay"
 BR2_ROOTFS_POST_BUILD_SCRIPT="board/overtos/post-build.sh board/overtos/strip-fdpic.sh"
 BR2_PACKAGE_BUSYBOX_CONFIG="board/overtos/busybox.config"
 BR2_PACKAGE_OVERTOS_LVBENCH=y
+# Scriptable Linux-personality benchmark runtime. Keep the database, socket,
+# process/POSIX, filesystem and structured-output bindings together so the
+# same Lua controller runs unchanged on every RTOS seam.
+BR2_PACKAGE_LUA=y
+BR2_PACKAGE_LUA_5_4=y
+BR2_PACKAGE_LUA_32BITS=y
+BR2_PACKAGE_LUA_READLINE=y
+BR2_PACKAGE_LUA_ARGPARSE=y
+BR2_PACKAGE_LUA_CJSON=y
+BR2_PACKAGE_LUA_OVE_PROCESS=y
+BR2_PACKAGE_LUADBI=y
+BR2_PACKAGE_LUADBI_SQLITE3=y
+BR2_PACKAGE_LUAFILESYSTEM=y
+BR2_PACKAGE_LUASOCKET=y
+BR2_PACKAGE_SQLITE=y
+# Preserve the already-shipped secondary scripting runtime when regenerating
+# this defconfig; its FDPIC-safe configuration deliberately excludes Unix FFI.
+BR2_PACKAGE_MICROPYTHON=y
+BR2_PACKAGE_MICROPYTHON_LIB=y
 # BR2_PACKAGE_IFUPDOWN_SCRIPTS is not set
 # HTTPS from the personality (P5): curl + mbedTLS (library only — the mbedtls
 # companion programs are MMU-gated; the lib is NoMMU/FDPIC-OK) + a CA bundle.

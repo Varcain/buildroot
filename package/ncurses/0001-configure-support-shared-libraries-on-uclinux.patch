@@ -1,0 +1,50 @@
+From 4f1e38c1aa191957f09ddfd27c446d19c01f56bc Mon Sep 17 00:00:00 2001
+From: Kamil Lulko <kamil.lulko@gmail.com>
+Date: Fri, 24 Jul 2026 21:35:00 +0200
+Subject: [PATCH] configure: support shared libraries on uClinux
+
+The canonical system name for Buildroot's ARM FDPIC toolchain is
+"uclinuxfdpiceabi".  The shared-library configuration recognizes Linux
+but, unlike several other platform checks in ncurses, does not recognize
+uClinux.  It consequently leaves CC_SHARED_OPTS set to "unknown" and
+rejects a shared-only Buildroot configuration.
+
+Treat uClinux like Linux when selecting the compiler and linker options
+for shared libraries.
+
+Upstream: not submitted
+Signed-off-by: Kamil Lulko <kamil.lulko@gmail.com>
+---
+ aclocal.m4 | 2 +-
+ configure  | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/aclocal.m4 b/aclocal.m4
+index 8bb0a41e..c169ce2b 100644
+--- a/aclocal.m4
++++ b/aclocal.m4
+@@ -7843,7 +7843,7 @@ CF_EOF
+ 		fi
+ 		cf_cv_rm_so_locs=yes
+ 		;;
+-	(linux*|gnu*|k*bsd*-gnu)
++	(linux*|uclinux*|gnu*|k*bsd*-gnu)
+ 		if test "$DFT_LWR_MODEL" = "shared" && test -n "$LD_RPATH_OPT" ; then
+ 			LOCAL_LDFLAGS="${LD_RPATH_OPT}\$(LOCAL_LIBDIR)"
+ 			LOCAL_LDFLAGS2="$LOCAL_LDFLAGS"
+diff --git a/configure b/configure
+index bf789d81..f958a163 100755
+--- a/configure
++++ b/configure
+@@ -7123,7 +7123,7 @@ CF_EOF
+ 		fi
+ 		cf_cv_rm_so_locs=yes
+ 		;;
+-	(linux*|gnu*|k*bsd*-gnu)
++	(linux*|uclinux*|gnu*|k*bsd*-gnu)
+ 		if test "$DFT_LWR_MODEL" = "shared" && test -n "$LD_RPATH_OPT" ; then
+ 			LOCAL_LDFLAGS="${LD_RPATH_OPT}\$(LOCAL_LIBDIR)"
+ 			LOCAL_LDFLAGS2="$LOCAL_LDFLAGS"
+-- 
+2.50.1
+

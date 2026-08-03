@@ -21,3 +21,21 @@ registers. /usr/bin/fpcheck validates s0-s31 and FPSCR at runtime.
 
 busybox.config is the applet set; enable applets here as the personality grows
 to support them.
+
+The production shell is BusyBox Hush with every user-facing Hush feature
+enabled (the internal HUSH_MEMLEAK debugger remains disabled). The Lua runtime
+contains Lua 5.4, readline, LuaSocket, LuaDBI/SQLite, LuaFileSystem, cjson and
+argparse. lua-ove-process supplies posix_spawnp/wait/kill/nice control without
+the fork() dependency that makes upstream LuaPOSIX unsuitable for NOMMU.
+
+Two equivalent stress drivers are installed for cross-engine comparisons:
+
+  /usr/libexec/ove-hammer-shell [seconds]
+  /usr/libexec/ove-hammer.lua [seconds]
+
+Both run lvmusic at nice -5, an HTTP receive stream at nice 10, and the
+SQLite/SD transaction workload at nice 0. They wait for the music-demo intro,
+inject the Play touch, use DELETE/FULL/MEMORY SQLite pragmas, retain 128 live
+rows, VACUUM every 20 transactions, and print delimited /proc/rt_scope and
+/proc/lxp_fs snapshots. The shell driver uses wget/sqlite3; the Lua driver uses
+LuaSocket/LuaDBI and the NOMMU process module. The default duration is 300 s.

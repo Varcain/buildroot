@@ -1,0 +1,6 @@
+config BR2_PACKAGE_LUA_OVE_PROCESS
+	bool "lua-ove-process"
+	help
+	  Small NOMMU-safe process-control module for Lua. It exposes
+	  posix_spawnp(), waitpid(), kill(), getpriority(), and setpriority()
+	  without relying on fork() or a shell.
