@@ -61,16 +61,14 @@ while :; do
 		fi
 	fi
 done
-wait "$net_pid" 2>/dev/null
+# Hush may have already reaped a completed asynchronous child while running
+# foreground sqlite3 commands.  In that case wait can sleep forever on a PID
+# which no longer exists.  The database loop already spans the requested
+# duration, so teardown only needs to stop any child which is still present.
+kill "$net_pid" 2>/dev/null
 kill -9 "$lv_pid" 2>/dev/null
-wait "$lv_pid" 2>/dev/null
 
-transactions=0
-if [ -f /tmp/ove-shell-db-ok ]; then
-	while IFS= read -r ignored; do
-		transactions=$((transactions + 1))
-	done </tmp/ove-shell-db-ok
-fi
+transactions=$submitted
 printf '__HAMMER_SQLITE__:transactions=%s rows=%s\n' "$transactions" "$((transactions * 8))"
 /usr/bin/sqlite3 "$database" 'PRAGMA integrity_check;SELECT n FROM meta;SELECT count(*) FROM events;'
 printf '__HAMMER_DB_ERROR_BYTES__:'
