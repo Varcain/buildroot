@@ -1,0 +1,3 @@
+#!/bin/sh
+
+exec /usr/bin/micropython -X heapsize=96K /usr/libexec/ove-hammer.py "$@"
