@@ -21,6 +21,17 @@ config BR2_PACKAGE_MICROPYTHON_LIB
 	  modules, as well as some MicroPython-specific libraries
 	  that aren't included in the base package.
 
+config BR2_PACKAGE_MICROPYTHON_SQLITE
+	bool "sqlite3 module"
+	select BR2_PACKAGE_SQLITE
+	help
+	  Build a small native sqlite3 module into the interpreter. The module
+	  exposes connect(), Connection.execute(), Connection.scalar() and
+	  Connection.close(), and does not depend on the Unix FFI module.
+
+	  This is suitable for FDPIC targets, where indirect calls through the
+	  Unix FFI are not ABI-safe.
+
 if BR2_PACKAGE_MICROPYTHON_LIB
 
 config BR2_PACKAGE_MICROPYTHON_LIB_UNIXFFI
