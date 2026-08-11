@@ -30,10 +30,11 @@ MICROPYTHON_CFLAGS += -DMICROPY_NLR_SETJMP=1
 endif
 
 # The FDPIC/NOMMU personality provides a 512 KiB per-process allocation
-# arena.  Leave room for libc, stacks and extension libraries around the
-# interpreter's GC heap.
+# arena.  SQLite VACUUM needs substantially more native-allocator headroom
+# than ordinary interpreter workloads, so keep the GC heap to one quarter of
+# the arena and leave the remainder for libc, stacks and extension libraries.
 ifeq ($(BR2_BINFMT_FDPIC),y)
-MICROPYTHON_CFLAGS += -DMICROPY_UNIX_GC_HEAP_SIZE=327680
+MICROPYTHON_CFLAGS += -DMICROPY_UNIX_GC_HEAP_SIZE=131072
 endif
 
 # When building from a tarball we don't have some of the dependencies that are in
