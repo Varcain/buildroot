@@ -15,7 +15,8 @@ STOP_PATH = "/tmp/ove-hammer.stop"
 NETWORK_RESULT_PATH = "/tmp/ove-micropython-net.json"
 LVMUSIC_PID_PATH = "/tmp/ove-micropython-lvmusic.pid"
 NETWORK_PID_PATH = "/tmp/ove-micropython-network.pid"
-DATABASE_PATH = "/data/.ove-hammer-micropython.db"
+DATA_DIRECTORY = "/data/.ove-hammer"
+DATABASE_PATH = DATA_DIRECTORY + "/micropython.db"
 DATABASE_ERROR_PATH = "/tmp/ove-micropython-db.err"
 
 
@@ -169,6 +170,7 @@ def open_database():
         "PRAGMA journal_mode=DELETE;"
         "PRAGMA synchronous=FULL;"
         "PRAGMA temp_store=FILE;"
+        "PRAGMA temp_store_directory='/data/.ove-hammer';"
         "PRAGMA cache_size=-16;"
         "PRAGMA mmap_size=0;"
     )
@@ -228,6 +230,8 @@ def controller(duration):
         tap(120, 160, 1500)
         time.sleep(2)
 
+        if not exists(DATA_DIRECTORY):
+            os.mkdir(DATA_DIRECTORY)
         stage = "initialize SQLite"
         database = initialize_database()
         stage = "start network worker"

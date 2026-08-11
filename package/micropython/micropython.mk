@@ -29,10 +29,10 @@ ifeq ($(BR2_xtensa),y)
 MICROPYTHON_CFLAGS += -DMICROPY_NLR_SETJMP=1
 endif
 
-# The FDPIC/NOMMU personality provides a 512 KiB per-process allocation
-# arena.  SQLite VACUUM needs substantially more native-allocator headroom
-# than ordinary interpreter workloads, so keep the GC heap to one quarter of
-# the arena and leave the remainder for libc, stacks and extension libraries.
+# The FDPIC/NOMMU personality provides a 256 KiB per-process program region.
+# SQLite VACUUM needs substantially more native-allocator headroom than
+# ordinary interpreter workloads, so keep the default GC heap to half of the
+# region and leave the remainder for libc, stacks and extension libraries.
 ifeq ($(BR2_BINFMT_FDPIC),y)
 MICROPYTHON_CFLAGS += -DMICROPY_UNIX_GC_HEAP_SIZE=131072
 endif

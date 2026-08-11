@@ -5,10 +5,13 @@
 # LuaSocket and LuaDBI; this version deliberately exercises Hush and CLI tools.
 
 duration="${1:-300}"
-database=/data/.ove-hammer-shell.db
+data_directory=/data/.ove-hammer
+database=$data_directory/shell.db
+vacuum_sql='PRAGMA temp_store_directory="/data/.ove-hammer";VACUUM;'
 transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;SELECT 1;'
 
 rm -f /tmp/ove-hammer.stop /tmp/ove-shell-db-ok /tmp/ove-shell-db-err
+mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
 
 /usr/bin/sqlite3 "$database" \
@@ -54,7 +57,7 @@ while :; do
 	if [ $((submitted % 20)) -eq 0 ]; then
 		IFS=' ' read -r uptime ignored </proc/uptime
 		[ "${uptime%.*}" -ge "$deadline" ] && break
-		if ! /usr/bin/sqlite3 "$database" 'VACUUM;' \
+		if ! /usr/bin/sqlite3 "$database" "$vacuum_sql" \
 			>/dev/null 2>>/tmp/ove-shell-db-err; then
 			printf '__HAMMER_SQLITE_ERROR__:vacuum_after=%s\n' "$submitted"
 			break

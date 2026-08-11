@@ -39,7 +39,10 @@ SQLite/SD transaction workload at nice 0. They wait for the music-demo intro,
 inject the Play touch, use DELETE journaling with FULL synchronization and the
 target-wide file-backed temporary-storage policy, retain 128 live rows, VACUUM
 every 20 transactions, and print delimited /proc/rt_scope and /proc/lxp_fs
-snapshots. The shell driver uses wget/sqlite3. The Lua driver uses LuaSocket and
+snapshots. Database and VACUUM shadow files live in /data/.ove-hammer rather
+than the FAT root directory, keeping temporary-file creation independent of
+unrelated root-directory occupancy. The shell driver uses wget/sqlite3. The
+Lua driver uses LuaSocket and
 LuaDBI directly from its controller, avoiding a persistent database-worker
 process slot; only VACUUM runs in a short-lived sqlite3 process because the Lua
 runtime and VACUUM's complete temporary image do not fit together in one FDPIC

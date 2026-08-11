@@ -15,6 +15,7 @@ else
 end
 
 local stop_path = "/tmp/ove-hammer.stop"
+local data_directory = "/data/.ove-hammer"
 
 local function stopped()
     return lfs.attributes(stop_path) ~= nil
@@ -173,7 +174,12 @@ local function controller(duration)
     assert(wait_for(touch, socket.gettime() + 15) == 0)
     socket.sleep(2)
 
-    local path = "/data/.ove-hammer-lua.db"
+    local made, mkdir_err = lfs.mkdir(data_directory)
+    if not made then
+        local attributes = lfs.attributes(data_directory)
+        assert(attributes and attributes.mode == "directory", mkdir_err)
+    end
+    local path = data_directory .. "/lua.db"
     local database, database_err = initialize_database(path)
     assert(database, database_err)
     local network = assert(process.spawn("/usr/bin/lua", {arg[0], "network"}))
@@ -204,7 +210,10 @@ local function controller(duration)
             database = nil
             collectgarbage("collect")
             local vacuum, vacuum_err = process.spawn(
-                "/usr/bin/sqlite3", {path, "VACUUM;"}, {
+                "/usr/bin/sqlite3", {
+                    path,
+                    "PRAGMA temp_store_directory=\"/data/.ove-hammer\";VACUUM;",
+                }, {
                     stdout = "/dev/null",
                     stderr = "/tmp/ove-lua-vacuum.err",
                 })
