@@ -39,9 +39,12 @@ def run(argv, timeout, check=True):
     return result
 
 
-def ssh_args(host, command, jump=None):
-    argv = [
-        "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+def ssh_args(host, command, jump=None, config=None):
+    argv = ["ssh"]
+    if config:
+        argv += ["-F", str(config)]
+    argv += [
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
         "-o", "StrictHostKeyChecking=accept-new",
     ]
     if jump:
@@ -49,14 +52,17 @@ def ssh_args(host, command, jump=None):
     return argv + [host, command]
 
 
-def pi_exec(pi, command, timeout=30):
-    return run(ssh_args(pi, command), timeout=timeout).stdout
+def pi_exec(pi, command, timeout=30, config=None):
+    return run(ssh_args(pi, command, config=config), timeout=timeout).stdout
 
 
-def deploy_server(pi):
+def deploy_server(pi, config=None):
     remote = "/tmp/native-linux-hammer-stream-server.py"
-    run([
-        "scp", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+    scp = ["scp"]
+    if config:
+        scp += ["-F", str(config)]
+    run(scp + [
+        "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
         "-o", "StrictHostKeyChecking=accept-new", str(SERVER_SOURCE),
         f"{pi}:{remote}",
     ], timeout=60)
@@ -71,12 +77,13 @@ def deploy_server(pi):
         "2>&1 </dev/null & echo $! >\"$pidfile\"; sleep 1; "
         "curl -fsS http://127.0.0.1:8082/metrics"
     )
-    return json.loads(pi_exec(pi, command))
+    return json.loads(pi_exec(pi, command, config=config))
 
 
-def pi_http(pi, endpoint):
+def pi_http(pi, endpoint, config=None):
     output = pi_exec(
-        pi, f"curl -fsS http://127.0.0.1:8082/{endpoint}", timeout=30
+        pi, f"curl -fsS http://127.0.0.1:8082/{endpoint}", timeout=30,
+        config=config,
     )
     return output
 
@@ -249,6 +256,8 @@ def record_build_metadata(output):
         "buildroot.config": ROOT / ".config",
         "linux.config": ROOT / "output/build/linux-5.15.211/.config",
         "uboot.config": ROOT / "output/build/uboot-2026.07/.config",
+        "busybox.config": ROOT / "output/build/busybox-1.38.0/.config",
+        "lvgl.config": ROOT / "output/build/native-linux-hammer-9.5.0/lv_conf.h",
     }
     copied = {}
     for name, source in files.items():
@@ -269,12 +278,42 @@ def record_build_metadata(output):
     return {
         "buildroot_commit": commit,
         "worktree_status": status.splitlines(),
+        "identities": {
+            "buildroot": "2026.08-git",
+            "linux": "5.15.211",
+            "uboot": "2026.07",
+            "lvgl": "9.5.0",
+            "architecture": "ARM Cortex-M7 NOMMU FDPIC",
+            "scheduler_baseline": "CONFIG_PREEMPT_NONE",
+        },
         "configuration_sha256": copied,
         "images": images,
     }
 
 
-def target_identity(target, jump):
+def archive_build_only(output, blockers):
+    output.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "status": "BUILD_PASS",
+        "phase": "native-linux-image",
+        "hardware_execution": "NOT_RUN",
+        "hardware_blockers": blockers,
+        "captured_at_utc": datetime.now(timezone.utc).isoformat(),
+        "image_contract": {
+            "root": "64 MiB ext2, booted read-only",
+            "data": "256 MiB VFAT on partition 2",
+            "shared_physical_medium": True,
+            "sd_bus_max_frequency_hz": 2000000,
+            "rendering": "software LVGL draw + Linux fbdev pwrite; no DMA2D",
+            "latency": "CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch",
+        },
+        "build": record_build_metadata(output),
+    }
+    (output / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(f"BUILD_PASS: hardware=NOT_RUN output={output}")
+
+
+def target_identity(target, jump, config=None):
     command = (
         "printf '[uname]\\n'; uname -a; "
         "printf '[cmdline]\\n'; cat /proc/cmdline; "
@@ -290,7 +329,7 @@ def target_identity(target, jump):
         "echo \"$p:$(cat \"$p\")\"; done; "
         "printf '[uptime]\\n'; cat /proc/uptime"
     )
-    return run(ssh_args(target, command, jump), timeout=60).stdout
+    return run(ssh_args(target, command, jump, config), timeout=60).stdout
 
 
 def analyze(duration, wall_seconds, returncode, text, server_metrics):
@@ -383,8 +422,12 @@ def main():
     parser.add_argument("--pi", default="pi")
     parser.add_argument("--jump", default="pi")
     parser.add_argument("--target", default="root@172.1.1.2")
+    parser.add_argument("--ssh-config", type=Path,
+                        default=Path.home() / ".ssh" / "config")
     parser.add_argument("--skip-server-deploy", action="store_true")
     parser.add_argument("--deploy-only", action="store_true")
+    parser.add_argument("--archive-build-only", action="store_true")
+    parser.add_argument("--hardware-blocker", action="append", default=[])
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.duration < 1 or args.duration > 3600:
@@ -392,13 +435,18 @@ def main():
     if args.duration != 300 and not args.allow_smoke:
         parser.error("non-300-second runs require --allow-smoke and are not comparable")
 
+    if args.archive_build_only:
+        output = args.output or ROOT / "output" / "hammer-results" / "poc-build"
+        archive_build_only(output, args.hardware_blocker)
+        return
+
     if not args.skip_server_deploy:
-        metrics = deploy_server(args.pi)
+        metrics = deploy_server(args.pi, args.ssh_config)
         if metrics.get("active") != 0:
             raise RuntimeError(f"new stream server unexpectedly active: {metrics}")
     for endpoint in ("reset", "ready", "metrics"):
         try:
-            response = pi_http(args.pi, endpoint)
+            response = pi_http(args.pi, endpoint, args.ssh_config)
             if endpoint != "ready":
                 print(f"Pi /{endpoint}: {response.strip()}")
         except RuntimeError:
@@ -410,18 +458,18 @@ def main():
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     output = args.output or ROOT / "output" / "hammer-results" / f"native-linux-{stamp}"
     output.mkdir(parents=True, exist_ok=False)
-    identity = target_identity(args.target, args.jump)
+    identity = target_identity(args.target, args.jump, args.ssh_config)
     (output / "identity.log").write_text(identity)
     command = f"exec /usr/bin/native-linux-hammer {args.duration}"
     started = time.monotonic()
     result = run(
-        ssh_args(args.target, command, args.jump),
+        ssh_args(args.target, command, args.jump, args.ssh_config),
         timeout=args.duration + 900,
         check=False,
     )
     wall_seconds = time.monotonic() - started
     (output / "benchmark.log").write_text(result.stdout)
-    server_metrics = json.loads(pi_http(args.pi, "metrics"))
+    server_metrics = json.loads(pi_http(args.pi, "metrics", args.ssh_config))
     summary = analyze(
         args.duration, wall_seconds, result.returncode, result.stdout,
         server_metrics,
