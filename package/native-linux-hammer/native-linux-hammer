@@ -7,6 +7,7 @@ database=$data_directory/shell.db
 net_result=/tmp/native-hammer-net.json
 latency_result=/tmp/native-hammer-latency.json
 lvgl_log=/tmp/native-hammer-lvgl.log
+lvgl_log_all=/tmp/native-hammer-lvgl-all.log
 uinput_event=/run/native-hammer-uinput.event
 uinput_control=/run/native-hammer-uinput.control
 db_errors=/tmp/native-hammer-db-errors
@@ -108,7 +109,7 @@ for name_path in /sys/class/input/event*/device/name; do
 	esac
 done
 
-rm -f "$net_result" "$latency_result" "$lvgl_log" "$db_errors" \
+rm -f "$net_result" "$latency_result" "$lvgl_log" "$lvgl_log_all" "$db_errors" \
 	/tmp/native-hammer-integrity /tmp/native-hammer-meta \
 	/tmp/native-hammer-live /tmp/native-hammer-retry-meta
 mkdir -p "$data_directory" || exit 4
@@ -135,17 +136,18 @@ read -r automation_input <"$uinput_event"
 
 LVGL_FBDEV="$framebuffer" LVGL_EVDEV="$automation_input" \
 	LVGL_EVDEV_SECONDARY="$physical_input" \
-	/usr/bin/nice -n -5 /usr/bin/lvmusic >"$lvgl_log" 2>&1 &
+	/usr/bin/nice -n -5 /usr/bin/lvmusic >"$lvgl_log_all" 2>&1 &
 lv_pid=$!
 sleep 15
 kill -0 "$lv_pid" 2>/dev/null || {
-	cat "$lvgl_log" >&2
+	cat "$lvgl_log_all" >&2
 	exit 3
 }
 printf 'tap 120 160 1500\n' >"$uinput_control" || exit 3
 sleep 2
-# Exclude the intro and retain only active-player performance samples.
-: >"$lvgl_log"
+# Remember the active-player boundary without truncating a file that lvmusic
+# still has open. The active-only copy is materialized after the run.
+lvgl_start_line=$(wc -l <"$lvgl_log_all")
 
 /usr/bin/wget -q -T 2 -O /dev/null http://172.1.1.1:8082/reset || exit 6
 /usr/bin/nice -n 10 /usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
@@ -259,6 +261,7 @@ rows=$((submitted * 8))
 expected_live=$rows
 [ "$expected_live" -gt 128 ] && expected_live=128
 error_bytes=$(wc -c <"$db_errors")
+sed -n "$((lvgl_start_line + 1)),\$p" "$lvgl_log_all" >"$lvgl_log"
 active_samples=$(grep -c 'sysmon: [1-9][0-9]* FPS' "$lvgl_log" 2>/dev/null)
 active_samples=${active_samples:-0}
 
