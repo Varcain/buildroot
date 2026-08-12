@@ -5,6 +5,7 @@ BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_5_15=y
 BR2_GLOBAL_PATCH_DIR="board/stmicroelectronics/stm32f746-disco/patches board/stmicroelectronics/stm32f746-disco/hammer/patches"
 BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 BR2_TARGET_GENERIC_ROOT_PASSWD="root"
+# BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
 BR2_ROOTFS_OVERLAY="board/stmicroelectronics/stm32f746-disco/hammer/rootfs-overlay"
 BR2_ROOTFS_POST_BUILD_SCRIPT="board/stmicroelectronics/stm32f746-disco/hammer/post-build.sh"
 BR2_ROOTFS_POST_IMAGE_SCRIPT="support/scripts/genimage.sh"
