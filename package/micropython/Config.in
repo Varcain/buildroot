@@ -32,6 +32,14 @@ config BR2_PACKAGE_MICROPYTHON_SQLITE
 	  This is suitable for FDPIC targets, where indirect calls through the
 	  Unix FFI are not ABI-safe.
 
+config BR2_PACKAGE_MICROPYTHON_OVE_PROCESS
+	bool "ove process-control module"
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	help
+	  Build a small NOMMU-safe process module into the interpreter. It
+	  exposes posix_spawnp(), waitpid(), kill(), getpriority(), and
+	  setpriority() without fork() or a helper shell.
+
 if BR2_PACKAGE_MICROPYTHON_LIB
 
 config BR2_PACKAGE_MICROPYTHON_LIB_UNIXFFI

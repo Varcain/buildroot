@@ -29,6 +29,7 @@ BR2_PACKAGE_SQLITE=y
 BR2_PACKAGE_MICROPYTHON=y
 BR2_PACKAGE_MICROPYTHON_LIB=y
 BR2_PACKAGE_MICROPYTHON_SQLITE=y
+BR2_PACKAGE_MICROPYTHON_OVE_PROCESS=y
 # BR2_PACKAGE_IFUPDOWN_SCRIPTS is not set
 # HTTPS from the personality (P5): curl + mbedTLS (library only — the mbedtls
 # companion programs are MMU-gated; the lib is NoMMU/FDPIC-OK) + a CA bundle.
