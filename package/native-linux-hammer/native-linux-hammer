@@ -1,0 +1,294 @@
+#!/bin/sh
+
+# Native Linux five-minute lvmusic + HTTP receive + SQLite/FAT workload.
+duration="${1:-300}"
+data_directory=/data/.native-linux-hammer
+database=$data_directory/shell.db
+net_result=/tmp/native-hammer-net.json
+latency_result=/tmp/native-hammer-latency.json
+lvgl_log=/tmp/native-hammer-lvgl.log
+uinput_event=/run/native-hammer-uinput.event
+uinput_control=/run/native-hammer-uinput.control
+db_errors=/tmp/native-hammer-db-errors
+transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;'
+vacuum_sql='PRAGMA temp_store_directory="/data/.native-linux-hammer";VACUUM;'
+
+lv_pid=
+net_pid=
+latency_pid=
+uinput_pid=
+
+cleanup()
+{
+	trap - EXIT INT TERM HUP
+	[ -n "$net_pid" ] && kill "$net_pid" 2>/dev/null
+	[ -n "$latency_pid" ] && kill "$latency_pid" 2>/dev/null
+	[ -n "$lv_pid" ] && kill "$lv_pid" 2>/dev/null
+	[ -n "$uinput_pid" ] && kill "$uinput_pid" 2>/dev/null
+}
+trap cleanup EXIT INT TERM HUP
+
+snapshot()
+{
+	label="$1"
+	printf '__SNAPSHOT_%s_BEGIN__\n' "$label"
+	printf '[uptime]\n'
+	cat /proc/uptime
+	printf '[meminfo]\n'
+	cat /proc/meminfo
+	printf '[stat]\n'
+	cat /proc/stat
+	printf '[interrupts]\n'
+	cat /proc/interrupts
+	printf '[mounts]\n'
+	cat /proc/mounts
+	printf '[diskstats]\n'
+	cat /proc/diskstats
+	printf '[block-stat]\n'
+	for block_stat in /sys/class/block/mmcblk*/stat; do
+		[ -r "$block_stat" ] || continue
+		printf '%s ' "$block_stat"
+		cat "$block_stat"
+	done
+	printf '[df-data]\n'
+	df -k /data
+	printf '[statfs-data]\n'
+	stat -f /data
+	printf '[processes]\n'
+	for measured_pid in "$$" "$lv_pid" "$net_pid" "$latency_pid"; do
+		[ -n "$measured_pid" ] || continue
+		[ -r "/proc/$measured_pid/stat" ] || continue
+		cat "/proc/$measured_pid/stat"
+	done
+	printf '[top]\n'
+	top -b -n 1
+	printf '__SNAPSHOT_%s_END__\n' "$label"
+}
+
+case "$duration" in
+	*[!0-9]*|'') exit 2 ;;
+esac
+[ "$duration" -gt 0 ] && [ "$duration" -le 3600 ] || exit 2
+
+grep -q ' /data vfat ' /proc/mounts || {
+	echo 'native-linux-hammer: /data is not mounted as VFAT' >&2
+	exit 4
+}
+grep -q ' / ext2 ro[, ]' /proc/mounts || {
+	echo 'native-linux-hammer: root ext2 filesystem is not read-only' >&2
+	exit 4
+}
+
+framebuffer=
+for candidate in /dev/fb*; do
+	[ -c "$candidate" ] || continue
+	framebuffer="$candidate"
+	break
+done
+[ -n "$framebuffer" ] || {
+	echo 'native-linux-hammer: no framebuffer device' >&2
+	exit 3
+}
+[ -c /dev/uinput ] || {
+	echo 'native-linux-hammer: /dev/uinput is absent' >&2
+	exit 3
+}
+
+physical_input=
+for name_path in /sys/class/input/event*/device/name; do
+	[ -r "$name_path" ] || continue
+	read -r input_name <"$name_path"
+	case "$input_name" in
+		*FT*|*ft*|*Touch*|*touch*)
+			event_name="${name_path#/sys/class/input/}"
+			event_name="${event_name%%/*}"
+			physical_input="/dev/input/$event_name"
+			break
+			;;
+	esac
+done
+
+rm -f "$net_result" "$latency_result" "$lvgl_log" "$db_errors" \
+	/tmp/native-hammer-integrity /tmp/native-hammer-meta \
+	/tmp/native-hammer-live /tmp/native-hammer-retry-meta
+mkdir -p "$data_directory" || exit 4
+rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
+
+/usr/bin/sqlite3 "$database" \
+	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
+	>/dev/null 2>"$db_errors" || exit 4
+
+/usr/bin/hammer-uinput "$uinput_event" "$uinput_control" \
+	>/tmp/native-hammer-uinput.log 2>&1 &
+uinput_pid=$!
+attempt=0
+while [ "$attempt" -lt 100 ] && [ ! -s "$uinput_event" ]; do
+	kill -0 "$uinput_pid" 2>/dev/null || break
+	attempt=$((attempt + 1))
+	sleep 1
+done
+[ -s "$uinput_event" ] || {
+	cat /tmp/native-hammer-uinput.log >&2
+	exit 3
+}
+read -r automation_input <"$uinput_event"
+
+LVGL_FBDEV="$framebuffer" LVGL_EVDEV="$automation_input" \
+	LVGL_EVDEV_SECONDARY="$physical_input" \
+	/usr/bin/nice -n -5 /usr/bin/lvmusic >"$lvgl_log" 2>&1 &
+lv_pid=$!
+sleep 15
+kill -0 "$lv_pid" 2>/dev/null || {
+	cat "$lvgl_log" >&2
+	exit 3
+}
+printf 'tap 120 160 1500\n' >"$uinput_control" || exit 3
+sleep 2
+# Exclude the intro and retain only active-player performance samples.
+: >"$lvgl_log"
+
+/usr/bin/wget -q -T 2 -O /dev/null http://172.1.1.1:8082/reset || exit 6
+/usr/bin/nice -n 10 /usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
+	"http://172.1.1.1:8082/stream?seconds=$duration" &
+net_pid=$!
+network_ready=0
+attempt=0
+while [ "$attempt" -lt 100 ]; do
+	if /usr/bin/wget -q -T 1 -O /dev/null http://172.1.1.1:8082/ready; then
+		network_ready=1
+		break
+	fi
+	attempt=$((attempt + 1))
+	sleep 1
+done
+[ "$network_ready" -eq 1 ] || exit 6
+
+/usr/bin/linux-rt-latency "$duration" >"$latency_result" \
+	2>/tmp/native-hammer-latency-error &
+latency_pid=$!
+
+printf '__HAMMER_BEGIN__:native-linux-shell duration=%s lvmusic=%s network=%s latency=%s network_ready=1 framebuffer=%s automation_input=%s physical_input=%s\n' \
+	"$duration" "$lv_pid" "$net_pid" "$latency_pid" "$framebuffer" \
+	"$automation_input" "${physical_input:-none}"
+snapshot BEFORE
+
+submitted=0
+transaction_retries=0
+failure=none
+IFS=' ' read -r started_uptime ignored </proc/uptime
+deadline=$((${started_uptime%.*} + duration))
+while :; do
+	IFS=' ' read -r uptime ignored </proc/uptime
+	[ "${uptime%.*}" -ge "$deadline" ] && break
+	transaction_attempt=0
+	while :; do
+		/usr/bin/sqlite3 "$database" "$transaction" \
+			>/dev/null 2>>"$db_errors"
+		transaction_status=$?
+		[ "$transaction_status" -eq 0 ] && break
+		transaction_retries=$((transaction_retries + 1))
+		/usr/bin/sqlite3 "$database" 'SELECT n FROM meta;' \
+			>/tmp/native-hammer-retry-meta 2>>"$db_errors"
+		read -r retry_meta </tmp/native-hammer-retry-meta
+		expected_before=$((submitted * 8))
+		expected_after=$(((submitted + 1) * 8))
+		if [ "$retry_meta" = "$expected_after" ]; then
+			transaction_status=0
+			break
+		fi
+		if [ "$retry_meta" != "$expected_before" ]; then
+			failure=transaction-counter
+			break
+		fi
+		transaction_attempt=$((transaction_attempt + 1))
+		if [ "$transaction_attempt" -ge 3 ]; then
+			failure="transaction-$transaction_status"
+			break
+		fi
+		sleep 1
+	done
+	[ "$failure" != none ] && break
+	submitted=$((submitted + 1))
+	if [ $((submitted % 20)) -eq 0 ]; then
+		IFS=' ' read -r uptime ignored </proc/uptime
+		[ "${uptime%.*}" -ge "$deadline" ] && break
+		if ! /usr/bin/sqlite3 "$database" "$vacuum_sql" \
+			>/dev/null 2>>"$db_errors"; then
+			failure=vacuum
+			break
+		fi
+	fi
+done
+IFS=' ' read -r ended_uptime ignored </proc/uptime
+
+attempt=0
+while [ "$attempt" -lt 600 ]; do
+	if /usr/bin/wget -q -T 2 -O "$net_result" \
+		http://172.1.1.1:8082/metrics &&
+		grep -q '"active": 0' "$net_result"; then
+		break
+	fi
+	attempt=$((attempt + 1))
+	sleep 1
+done
+if ! grep -q '"completed": 1' "$net_result" 2>/dev/null ||
+	! grep -q '"errors": 0' "$net_result" 2>/dev/null; then
+	[ "$failure" = none ] && failure=network
+	[ -n "$net_pid" ] && kill "$net_pid" 2>/dev/null
+fi
+net_pid=
+
+if ! wait "$latency_pid"; then
+	[ "$failure" = none ] && failure=latency
+	cat /tmp/native-hammer-latency-error >&2
+fi
+latency_pid=
+
+/usr/bin/sqlite3 "$database" 'PRAGMA integrity_check;' \
+	>/tmp/native-hammer-integrity 2>>"$db_errors"
+read -r integrity </tmp/native-hammer-integrity
+/usr/bin/sqlite3 "$database" 'SELECT n FROM meta;' \
+	>/tmp/native-hammer-meta 2>>"$db_errors"
+read -r meta </tmp/native-hammer-meta
+/usr/bin/sqlite3 "$database" 'SELECT count(*) FROM events;' \
+	>/tmp/native-hammer-live 2>>"$db_errors"
+read -r live_rows </tmp/native-hammer-live
+meta=${meta:-unknown}
+live_rows=${live_rows:-unknown}
+rows=$((submitted * 8))
+expected_live=$rows
+[ "$expected_live" -gt 128 ] && expected_live=128
+error_bytes=$(wc -c <"$db_errors")
+active_samples=$(grep -c 'sysmon: [1-9][0-9]* FPS' "$lvgl_log" 2>/dev/null)
+active_samples=${active_samples:-0}
+
+[ "$meta" = "$rows" ] || failure=metadata
+[ "$live_rows" = "$expected_live" ] || failure=live-rows
+[ "$integrity" = ok ] || failure=integrity
+[ "$error_bytes" -eq 0 ] || failure=sqlite-errors
+[ "$active_samples" -ge "$duration" ] || failure=lvgl-samples
+
+snapshot AFTER
+printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s retries=%s integrity=%s error=%s\n' \
+	"$submitted" "$rows" "$meta" "$live_rows" "$transaction_retries" \
+	"$integrity" "$failure"
+printf '__HAMMER_TIMING__:started_uptime=%s ended_uptime=%s\n' \
+	"$started_uptime" "$ended_uptime"
+printf '__HAMMER_NETWORK__:'
+[ -s "$net_result" ] && cat "$net_result" || echo '{"error":"missing"}'
+printf '__HAMMER_LATENCY__:'
+[ -s "$latency_result" ] && cat "$latency_result" || echo '{"error":"missing"}'
+printf '__HAMMER_LVGL__:active_samples=%s required=%s\n' \
+	"$active_samples" "$duration"
+printf '__HAMMER_DB_ERROR_BYTES__:%s\n' "$error_bytes"
+printf '__LVGL_LOG_BEGIN__\n'
+cat "$lvgl_log"
+printf '__LVGL_LOG_END__\n'
+printf '__HAMMER_END__:native-linux-shell\n'
+
+kill "$lv_pid" 2>/dev/null
+lv_pid=
+kill "$uinput_pid" 2>/dev/null
+uinput_pid=
+trap - EXIT INT TERM HUP
+[ "$failure" = none ]

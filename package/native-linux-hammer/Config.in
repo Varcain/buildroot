@@ -1,0 +1,10 @@
+config BR2_PACKAGE_NATIVE_LINUX_HAMMER
+	bool "native-linux-hammer"
+	depends on !BR2_USE_MMU
+	select BR2_PACKAGE_SQLITE
+	help
+	  Native Linux implementation of the STM32F746 hammer workload.
+
+	  It provides the LVGL 9.5 music demo, Linux uinput automation,
+	  an absolute-clock SCHED_FIFO latency probe, and the five-minute
+	  SQLite/network/display benchmark driver.
