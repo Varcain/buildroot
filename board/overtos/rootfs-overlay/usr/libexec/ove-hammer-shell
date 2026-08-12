@@ -1,16 +1,35 @@
 #!/bin/sh
 
 # Five-minute (by default) lvmusic + HTTP receive + SQLite/SD workload.
-# The Lua benchmark implements the same priorities and data operations through
-# LuaSocket and LuaDBI; this version deliberately exercises Hush and CLI tools.
+# The three hammer drivers deliberately share one output and timing contract.
 
 duration="${1:-300}"
 data_directory=/data/.ove-hammer
 database=$data_directory/shell.db
+stop_path=/tmp/ove-hammer.stop
+net_result_path=/tmp/ove-shell-net.json
 vacuum_sql='PRAGMA temp_store_directory="/data/.ove-hammer";VACUUM;'
 transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;SELECT 1;'
 
-rm -f /tmp/ove-hammer.stop /tmp/ove-shell-db-ok /tmp/ove-shell-db-err
+lv_pid=
+net_pid=
+cleanup()
+{
+	trap - EXIT INT TERM HUP
+	printf 'stop\n' >"$stop_path"
+	[ -n "$net_pid" ] && kill "$net_pid" 2>/dev/null
+	[ -n "$lv_pid" ] && kill -9 "$lv_pid" 2>/dev/null
+}
+trap cleanup EXIT INT TERM HUP
+
+case "$duration" in
+	*[!0-9]*|'') exit 2 ;;
+esac
+[ "$duration" -gt 0 ] || exit 2
+
+rm -f "$stop_path" "$net_result_path" /tmp/ove-shell-db-ok /tmp/ove-shell-db-err \
+	/tmp/ove-shell-integrity /tmp/ove-shell-meta /tmp/ove-shell-live \
+	/tmp/ove-shell-db-error-bytes
 mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
 
@@ -26,31 +45,50 @@ sleep 15
 /usr/bin/touchctl tap 120 160 1500 || exit 3
 sleep 2
 
-printf '__RT_SCOPE_BEFORE__\n'
-cat /proc/rt_scope
-printf '__RT_SCOPE_BEFORE_END__\n'
-
-/usr/bin/wget -q -T 420 -O /dev/null \
+# A background compound command makes Hush re-exec itself and costs a scarce
+# FDPIC process slot. Launch wget directly; the server's completion record is
+# the authoritative status and survives Hush reaping this child.
+/usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
 	"http://172.1.1.1:8082/stream?seconds=$duration" &
 net_pid=$!
 /usr/bin/renice -n 10 -p "$net_pid" >/dev/null || exit 6
 
-printf '__HAMMER_BEGIN__:shell duration=%s lvmusic=%s network=%s\n' \
-	"$duration" "$lv_pid" "$net_pid"
+# /ready returns success only while the measured stream is active.  This puts
+# every driver's before snapshots after the same real network handshake.
+network_ready=0
+attempt=0
+while [ "$attempt" -lt 100 ]; do
+	if /usr/bin/wget -q -T 1 -O /dev/null http://172.1.1.1:8082/ready; then
+		network_ready=1
+		break
+	fi
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+[ "$network_ready" -eq 1 ] || exit 6
 
-# Keep the controller as the database worker so the SSH workload does not need
-# another persistent process region.  Each CLI invocation exits only after a
-# complete transaction.  The uptime deadline is checked at transaction and
-# VACUUM boundaries, so the driver never kills SQLite while FAT I/O is active.
+printf '__HAMMER_BEGIN__:shell duration=%s lvmusic=%s network=%s network_ready=1\n' \
+	"$duration" "$lv_pid" "$net_pid"
+printf '__FS_BEFORE__\n'
+cat /proc/lxp_fs
+printf '__FS_BEFORE_END__\n'
+printf '__RT_SCOPE_BEFORE__\n'
+cat /proc/rt_scope
+printf '__RT_SCOPE_BEFORE_END__\n'
+
+# SQLite stops only at a transaction or VACUUM boundary.  Record raw monotonic
+# uptime values so the runner can use the same precise elapsed-time denominator
+# as the Lua and MicroPython drivers.
 submitted=0
-IFS=' ' read -r uptime ignored </proc/uptime
-deadline=$((${uptime%.*} + duration))
+failure=none
+IFS=' ' read -r started_uptime ignored </proc/uptime
+deadline=$((${started_uptime%.*} + duration))
 while :; do
 	IFS=' ' read -r uptime ignored </proc/uptime
 	[ "${uptime%.*}" -ge "$deadline" ] && break
 	if ! /usr/bin/sqlite3 "$database" "$transaction" \
 		>>/tmp/ove-shell-db-ok 2>>/tmp/ove-shell-db-err; then
-		printf '__HAMMER_SQLITE_ERROR__:transaction=%s\n' "$((submitted + 1))"
+		failure=transaction
 		break
 	fi
 	submitted=$((submitted + 1))
@@ -59,23 +97,66 @@ while :; do
 		[ "${uptime%.*}" -ge "$deadline" ] && break
 		if ! /usr/bin/sqlite3 "$database" "$vacuum_sql" \
 			>/dev/null 2>>/tmp/ove-shell-db-err; then
-			printf '__HAMMER_SQLITE_ERROR__:vacuum_after=%s\n' "$submitted"
+			failure=vacuum
 			break
 		fi
 	fi
 done
-# Hush may have already reaped a completed asynchronous child while running
-# foreground sqlite3 commands.  In that case wait can sleep forever on a PID
-# which no longer exists.  The database loop already spans the requested
-# duration, so teardown only needs to stop any child which is still present.
-kill "$net_pid" 2>/dev/null
-kill -9 "$lv_pid" 2>/dev/null
+IFS=' ' read -r ended_uptime ignored </proc/uptime
+printf 'stop\n' >"$stop_path"
 
+# The server owns the common deadline and records normal completion versus a
+# broken stream. Poll its stable JSON result rather than Hush's lossy job table.
+attempt=0
+while [ "$attempt" -lt 600 ]; do
+	if /usr/bin/wget -q -T 2 -O "$net_result_path" \
+		http://172.1.1.1:8082/metrics &&
+		grep -q '"active": 0' "$net_result_path"; then
+		break
+	fi
+	attempt=$((attempt + 1))
+	sleep 0.1
+done
+network_error=missing
+if [ -s "$net_result_path" ] &&
+	grep -q '"completed": 1' "$net_result_path" &&
+	grep -q '"errors": 0' "$net_result_path"; then
+	network_error=none
+else
+	[ "$failure" = none ] && failure=network
+	kill "$net_pid" 2>/dev/null
+fi
+kill -9 "$lv_pid" 2>/dev/null
+lv_pid=
+net_pid=
+
+/usr/bin/sqlite3 "$database" 'PRAGMA integrity_check;' \
+	>/tmp/ove-shell-integrity 2>>/tmp/ove-shell-db-err
+read -r integrity </tmp/ove-shell-integrity
+/usr/bin/sqlite3 "$database" 'SELECT n FROM meta;' \
+	>/tmp/ove-shell-meta 2>>/tmp/ove-shell-db-err
+read -r meta </tmp/ove-shell-meta
+/usr/bin/sqlite3 "$database" 'SELECT count(*) FROM events;' \
+	>/tmp/ove-shell-live 2>>/tmp/ove-shell-db-err
+read -r live_rows </tmp/ove-shell-live
+meta=${meta:-unknown}
+live_rows=${live_rows:-unknown}
 transactions=$submitted
-printf '__HAMMER_SQLITE__:transactions=%s rows=%s\n' "$transactions" "$((transactions * 8))"
-/usr/bin/sqlite3 "$database" 'PRAGMA integrity_check;SELECT n FROM meta;SELECT count(*) FROM events;'
-printf '__HAMMER_DB_ERROR_BYTES__:'
-wc -c </tmp/ove-shell-db-err
+rows=$((transactions * 8))
+wc -c </tmp/ove-shell-db-err >/tmp/ove-shell-db-error-bytes
+read -r error_bytes </tmp/ove-shell-db-error-bytes
+
+printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s integrity=%s error=%s\n' \
+	"$transactions" "$rows" "$meta" "$live_rows" "$integrity" "$failure"
+printf '__HAMMER_TIMING__:started_uptime=%s ended_uptime=%s\n' \
+	"$started_uptime" "$ended_uptime"
+printf '__HAMMER_NETWORK__:'
+if [ -s "$net_result_path" ]; then
+	cat "$net_result_path"
+else
+	printf '{"error":"%s"}\n' "$network_error"
+fi
+printf '__HAMMER_DB_ERROR_BYTES__:%s\n' "$error_bytes"
 printf '__RT_SCOPE_AFTER__\n'
 cat /proc/rt_scope
 printf '__RT_SCOPE_AFTER_END__\n'
@@ -83,3 +164,6 @@ printf '__FS_AFTER__\n'
 cat /proc/lxp_fs
 printf '__FS_AFTER_END__\n'
 printf '__HAMMER_END__:shell\n'
+
+trap - EXIT INT TERM HUP
+[ "$failure" = none ] && [ "$integrity" = ok ] && [ "$error_bytes" -eq 0 ]
