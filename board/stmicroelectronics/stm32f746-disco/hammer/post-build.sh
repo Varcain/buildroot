@@ -6,7 +6,8 @@ board_dir="$(dirname "$0")"
 install -m 0644 -D "${board_dir}/extlinux.conf" \
 	"${TARGET_DIR}/boot/extlinux/extlinux.conf"
 
-# Host keys are generated into tmpfs at boot; keep the measured rootfs read-only.
+# The host key is persisted on /data and linked into this tmpfs directory at
+# boot, keeping both the measured rootfs read-only and SSH identity stable.
 rm -rf "${TARGET_DIR}/etc/dropbear"
 ln -s /run/dropbear "${TARGET_DIR}/etc/dropbear"
 

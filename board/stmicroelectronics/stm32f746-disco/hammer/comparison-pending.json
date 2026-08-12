@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "status": "NOT_RUN",
+  "directly_comparable": false,
+  "reason": "No ST-LINK VCP or removable SD device was present, and the Pi SSH agent was not forwarded.",
+  "native_linux": {
+    "build_status": "PASS",
+    "hardware_status": "NOT_RUN",
+    "result": null,
+    "scheduler": "CONFIG_PREEMPT_NONE",
+    "sd_bus_max_frequency_hz": 2000000,
+    "rendering": "software draw + Linux fbdev pwrite",
+    "latency_semantics": "CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch"
+  },
+  "primary_lxp_reference": {
+    "path": "/home/varcain/projects/private/hIRoic/oveRTOS/output/zephyr-single-sector-full-20260812/zephyr-shell.json",
+    "status": "PASS",
+    "identity": "Linux overtos 6.1.0 Zephyr 4.4.0 ove-bf9a39c-dirty lxp-1fa50f8 armv7l",
+    "duration_s": 300,
+    "sqlite": {
+      "transactions": 80,
+      "elapsed_s": 313.0,
+      "transactions_per_second": 0.25559105431309903,
+      "rows": 640,
+      "meta": 640,
+      "live_rows": 128,
+      "integrity": "ok",
+      "error": "none"
+    },
+    "network": {
+      "bytes": 65470464,
+      "elapsed_s": 300.09273182787,
+      "mbps": 1.7453395449124882,
+      "completed": 1,
+      "errors": 0
+    },
+    "lvgl": {
+      "active_samples": 783,
+      "fps_mean": 2.867177522349936,
+      "fps_median": 3,
+      "render_ms_mean": 191.82758620689654,
+      "flush_ms_mean": 14.578544061302683,
+      "cpu_percent_mean": 99.75223499361431
+    },
+    "rt_scope": {
+      "measurement": "TIM3 hardware release to critical host task",
+      "delta_releases": 319235,
+      "delta_executions": 319235,
+      "delta_missed": 0,
+      "lifetime_dispatch_average_ns": 9648,
+      "lifetime_dispatch_p99_upper_us": 32,
+      "lifetime_dispatch_p99_9_upper_us": 50,
+      "lifetime_dispatch_max_ns": 77167
+    }
+  },
+  "parity_gaps": [
+    {"id": "rendering", "bias": "LXP", "linux": "software+pwrite", "lxp": "DMA2D draw+flush"},
+    {"id": "personality", "bias": "Linux", "linux": "native syscalls", "lxp": "guest/coordinator syscall path"},
+    {"id": "sd-transfer-policy", "bias": "Linux", "linux": "multiblock-capable", "lxp": "bounded single-sector"},
+    {"id": "root-medium", "bias": "LXP", "linux": "root and data share SD", "lxp": "root QSPI, data SD"},
+    {"id": "latency-semantics", "bias": "incomparable", "linux": "software timer to userspace", "lxp": "TIM3 IRQ/event to host task plus scope pins"},
+    {"id": "preemption", "bias": "LXP", "linux": "PREEMPT_NONE", "lxp": "critical host priority"},
+    {"id": "memory-layout", "bias": "indeterminate"},
+    {"id": "reference-provenance", "bias": "indeterminate", "detail": "fresh Zephyr identity was dirty"}
+  ]
+}
