@@ -63,7 +63,6 @@ while [ "$attempt" -lt 100 ]; do
 		break
 	fi
 	attempt=$((attempt + 1))
-	sleep 0.1
 done
 [ "$network_ready" -eq 1 ] || exit 6
 
@@ -115,7 +114,6 @@ while [ "$attempt" -lt 600 ]; do
 		break
 	fi
 	attempt=$((attempt + 1))
-	sleep 0.1
 done
 network_error=missing
 if [ -s "$net_result_path" ] &&
