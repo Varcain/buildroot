@@ -1,0 +1,6 @@
+# oveRTOS Linux-personality mounts. The synthetic rootfs and tmpfs namespaces
+# already exist before init and therefore must not be mounted again here.
+proc            /proc   proc  defaults                    0 0
+# The checker is deliberately not run implicitly: full FAT scans must be done
+# with /data unmounted, and their memory cost depends on media geometry.
+/dev/mmcblk0    /data   vfat  defaults,nosuid,nodev,noexec 0 0

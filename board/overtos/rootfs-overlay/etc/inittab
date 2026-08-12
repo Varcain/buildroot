@@ -3,7 +3,7 @@
 # opens the console, prints the issue + "login:", and execs login. root now has a
 # password (BR2_TARGET_GENERIC_ROOT_PASSWD, required so SSH/dropbear password auth
 # works — it refuses a blank one), so both the console and SSH prompt for it.
-::sysinit:/bin/mount -t proc proc /proc
+::sysinit:/bin/mount -a
 ::sysinit:/bin/mount -o remount,rw /
 ::sysinit:/bin/mkdir -p /dev/pts /dev/shm /var/run/dropbear
 # Pre-generate the SSH host key here (not rcS, which can intermittently fail to
