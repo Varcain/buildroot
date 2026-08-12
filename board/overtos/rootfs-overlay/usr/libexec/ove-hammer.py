@@ -179,6 +179,8 @@ def initialize_database():
         remove(DATABASE_PATH + suffix)
     database = open_database()
     database.execute(
+        "DROP TABLE IF EXISTS events;"
+        "DROP TABLE IF EXISTS meta;"
         "CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);"
         "CREATE TABLE meta(n INTEGER NOT NULL);"
         "INSERT INTO meta VALUES(0);"

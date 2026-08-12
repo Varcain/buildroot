@@ -114,7 +114,9 @@ local function initialize_database(path)
     os.remove(path .. "-shm")
     local database, err = connect_database(path)
     if not database then return nil, err end
-    local ok, why = sql_exec(database,
+    local ok, why = sql_exec(database, "DROP TABLE IF EXISTS events")
+    if ok then ok, why = sql_exec(database, "DROP TABLE IF EXISTS meta") end
+    if ok then ok, why = sql_exec(database,
         "CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB)")
     if ok then ok, why = sql_exec(database, "CREATE TABLE meta(n INTEGER NOT NULL)") end
     if ok then ok, why = sql_exec(database, "INSERT INTO meta VALUES(0)") end

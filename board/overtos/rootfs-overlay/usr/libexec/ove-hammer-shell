@@ -34,7 +34,7 @@ mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
 
 /usr/bin/sqlite3 "$database" \
-	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
+	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
 	>/dev/null 2>/tmp/ove-shell-db-err || exit 4
 
 /usr/bin/lvmusic >/dev/console 2>&1 &
