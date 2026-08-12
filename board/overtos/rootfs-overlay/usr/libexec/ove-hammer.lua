@@ -118,6 +118,7 @@ local function initialize_database(path)
     if ok then ok, why = sql_exec(database, "DROP TABLE IF EXISTS meta") end
     if ok then ok, why = sql_exec(database,
         "CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB)")
+    end
     if ok then ok, why = sql_exec(database, "CREATE TABLE meta(n INTEGER NOT NULL)") end
     if ok then ok, why = sql_exec(database, "INSERT INTO meta VALUES(0)") end
     if not ok then
