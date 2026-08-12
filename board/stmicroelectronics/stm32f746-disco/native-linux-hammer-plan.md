@@ -180,7 +180,7 @@ parity-gap table, and exact restoration steps.
 
 | Risk or difference | Mitigation and reporting rule |
 | --- | --- |
-| STM32F746 has only 16 MiB external RAM | Track boot-time free memory and peak process memory; minimize userspace and avoid adding secondary language runtimes to the shell PoC. |
+| STM32F746G-DISCO exposes 8 MiB external SDRAM, and LTDC needs a 512 KiB default DMA pool | Track boot-time free memory and peak process memory; minimize userspace and avoid adding secondary language runtimes to the shell PoC.  Preserve the stock 16 MiB config/8 MiB DTS mismatch as baseline evidence, but make the PoC config and DTS agree on the physical 8 MiB. |
 | ARM NOMMU/FDPIC package support is uneven | Build each dependency early; replace only unsupported tooling with a small purpose-built program and disclose it. |
 | Stock fragment removes block, multiuser, timerfd, sysctl, and crypto facilities | Re-enable only demonstrated dependencies in the derived config; retain the untouched baseline config and non-preempt policy. |
 | Native framebuffer/touch coverage may be incomplete in Linux 5.15 | Verify device-tree and driver binding from logs/sysfs; treat patches as separate logical changes. |

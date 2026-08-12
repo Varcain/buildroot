@@ -1,0 +1,21 @@
+#!/bin/sh
+
+hostname stm32f746-linux
+ip link set lo up
+
+mkdir -p /sys/kernel/debug /data/.native-linux /run/dropbear
+mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || true
+
+host_key=/data/.native-linux/dropbear_ed25519_host_key
+if [ ! -s "$host_key" ]; then
+	dropbearkey -t ed25519 -f "$host_key" || exit 1
+fi
+ln -sf "$host_key" /run/dropbear/dropbear_ed25519_host_key
+
+if ip link show eth0 >/dev/null 2>&1; then
+	ip addr flush dev eth0
+	ip addr add 172.1.1.2/24 dev eth0
+	ip link set eth0 up
+fi
+
+echo "native Linux hammer: console root/root; Ethernet 172.1.1.2/24"

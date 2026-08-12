@@ -1,0 +1,52 @@
+From 36bc22b120b92f9af90b1b1b0ccb4b106d171d39 Mon Sep 17 00:00:00 2001
+From: Native Linux hammer PoC <noreply@example.com>
+Date: Thu, 13 Aug 2026 00:00:00 +0200
+Subject: [PATCH] drm/panel: simple: add Rocktech RK043FN48H
+
+The STM32F746-DISCO carries a 480x272 RGB DPI panel.  Add its fixed
+timing and 24-bit RGB bus description so the STM LTDC driver receives
+a complete display contract on Linux 5.15.
+
+Signed-off-by: Native Linux hammer PoC <noreply@example.com>
+---
+ drivers/gpu/drm/panel/panel-simple.c | 30 ++++++++++++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/drivers/gpu/drm/panel/panel-simple.c b/drivers/gpu/drm/panel/panel-simple.c
+index 2be3588ba2f8..c6e1bb59e7e7 100644
+--- a/drivers/gpu/drm/panel/panel-simple.c
++++ b/drivers/gpu/drm/panel/panel-simple.c
+@@ -3745,0 +3746,27 @@ static const struct panel_desc qishenglong_gopher2b_lcd = {
++static const struct display_timing rocktech_rk043fn48h_timing = {
++	.pixelclock = { 9000000, 9000000, 9000000 },
++	.hactive = { 480, 480, 480 },
++	.hfront_porch = { 2, 2, 2 },
++	.hback_porch = { 2, 2, 2 },
++	.hsync_len = { 41, 41, 41 },
++	.vactive = { 272, 272, 272 },
++	.vfront_porch = { 2, 2, 2 },
++	.vback_porch = { 2, 2, 2 },
++	.vsync_len = { 10, 10, 10 },
++	.flags = DISPLAY_FLAGS_HSYNC_LOW | DISPLAY_FLAGS_VSYNC_LOW |
++		 DISPLAY_FLAGS_DE_HIGH | DISPLAY_FLAGS_PIXDATA_POSEDGE,
++};
++
++static const struct panel_desc rocktech_rk043fn48h = {
++	.timings = &rocktech_rk043fn48h_timing,
++	.num_timings = 1,
++	.bpc = 8,
++	.size = {
++		.width = 95,
++		.height = 54,
++	},
++	.bus_format = MEDIA_BUS_FMT_RGB888_1X24,
++	.bus_flags = DRM_BUS_FLAG_DE_HIGH | DRM_BUS_FLAG_PIXDATA_SAMPLE_POSEDGE,
++	.connector_type = DRM_MODE_CONNECTOR_DPI,
++};
++
+@@ -4847,0 +4875,3 @@ static const struct of_device_id platform_of_match[] = {
++	}, {
++		.compatible = "rocktech,rk043fn48h",
++		.data = &rocktech_rk043fn48h,
+--
+2.50.1

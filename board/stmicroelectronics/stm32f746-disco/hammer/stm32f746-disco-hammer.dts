@@ -1,0 +1,219 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+/* Native-Linux hammer device tree for the STM32F746G-DISCO. */
+
+/dts-v1/;
+#include "stm32f746.dtsi"
+#include "stm32f746-pinctrl.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/interrupt-controller/irq.h>
+
+/ {
+	model = "STMicroelectronics STM32F746-DISCO native Linux hammer";
+	compatible = "st,stm32f746-disco", "st,stm32f746";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	memory@c0000000 {
+		device_type = "memory";
+		reg = <0xc0000000 0x00800000>;
+	};
+
+	reserved-memory {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		ranges;
+
+		dma_pool: dma-pool@c0780000 {
+			compatible = "shared-dma-pool";
+			reg = <0xc0780000 0x00080000>;
+			no-map;
+			linux,dma-default;
+		};
+	};
+
+	aliases {
+		serial0 = &usart1;
+		ethernet0 = &mac;
+	};
+
+	vcc_3v3: regulator-vcc-3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "vcc_3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-always-on;
+	};
+
+	backlight: backlight {
+		compatible = "gpio-backlight";
+		gpios = <&gpiok 3 GPIO_ACTIVE_HIGH>;
+		default-on;
+	};
+
+	panel_rgb: panel-rgb {
+		compatible = "rocktech,rk043fn48h";
+		power-supply = <&vcc_3v3>;
+		backlight = <&backlight>;
+		enable-gpios = <&gpioi 12 GPIO_ACTIVE_HIGH>;
+
+		port {
+			panel_in_rgb: endpoint {
+				remote-endpoint = <&ltdc_out_rgb>;
+			};
+		};
+	};
+
+	soc {
+		ltdc: display-controller@40016800 {
+			compatible = "st,stm32-ltdc";
+			reg = <0x40016800 0x200>;
+			interrupts = <88>, <89>;
+			resets = <&rcc STM32F7_APB2_RESET(LTDC)>;
+			clocks = <&rcc 1 CLK_LCD>;
+			clock-names = "lcd";
+			status = "disabled";
+		};
+
+		mac: ethernet@40028000 {
+			compatible = "st,stm32-dwmac", "snps,dwmac-3.50a";
+			reg = <0x40028000 0x8000>;
+			reg-names = "stmmaceth";
+			interrupts = <61>, <62>;
+			interrupt-names = "macirq", "eth_wake_irq";
+			clocks = <&rcc 0 STM32F7_AHB1_CLOCK(ETHMAC)>,
+				 <&rcc 0 STM32F7_AHB1_CLOCK(ETHMACTX)>,
+				 <&rcc 0 STM32F7_AHB1_CLOCK(ETHMACRX)>;
+			clock-names = "stmmaceth", "mac-clk-tx", "mac-clk-rx";
+			st,syscon = <&syscfg 0x4>;
+			snps,pbl = <8>;
+			snps,mixed-burst;
+			pinctrl-0 = <&ethernet_rmii_pins_a>;
+			pinctrl-names = "default";
+			phy-mode = "rmii";
+			phy-handle = <&phy0>;
+			status = "okay";
+
+			mdio {
+				#address-cells = <1>;
+				#size-cells = <0>;
+				compatible = "snps,dwmac-mdio";
+
+				phy0: ethernet-phy@0 {
+					reg = <0>;
+				};
+			};
+		};
+	};
+};
+
+&clk_hse {
+	clock-frequency = <25000000>;
+};
+
+&pinctrl {
+	i2c3_pins_a: i2c3-0 {
+		pins {
+			pinmux = <STM32_PINMUX('H', 8, AF4)>, /* I2C3 SDA */
+				 <STM32_PINMUX('H', 7, AF4)>; /* I2C3 SCL */
+			bias-disable;
+			drive-open-drain;
+			slew-rate = <0>;
+		};
+	};
+
+	ethernet_rmii_pins_a: ethernet-rmii-0 {
+		pins {
+			pinmux = <STM32_PINMUX('G', 13, AF11)>, /* RMII TXD0 */
+				 <STM32_PINMUX('G', 14, AF11)>, /* RMII TXD1 */
+				 <STM32_PINMUX('G', 11, AF11)>, /* RMII TX EN */
+				 <STM32_PINMUX('A', 2, AF11)>,  /* MDIO */
+				 <STM32_PINMUX('C', 1, AF11)>,  /* MDC */
+				 <STM32_PINMUX('A', 1, AF11)>,  /* RMII REF CLK */
+				 <STM32_PINMUX('A', 7, AF11)>,  /* RMII CRS DV */
+				 <STM32_PINMUX('C', 4, AF11)>,  /* RMII RXD0 */
+				 <STM32_PINMUX('C', 5, AF11)>;  /* RMII RXD1 */
+			slew-rate = <2>;
+		};
+	};
+
+	ltdc_pins_a: ltdc-0 {
+		pins {
+			pinmux = <STM32_PINMUX('E', 4, AF14)>,
+				 <STM32_PINMUX('G', 12, AF9)>,
+				 <STM32_PINMUX('I', 9, AF14)>,
+				 <STM32_PINMUX('I', 10, AF14)>,
+				 <STM32_PINMUX('I', 14, AF14)>,
+				 <STM32_PINMUX('I', 15, AF14)>,
+				 <STM32_PINMUX('J', 0, AF14)>,
+				 <STM32_PINMUX('J', 1, AF14)>,
+				 <STM32_PINMUX('J', 2, AF14)>,
+				 <STM32_PINMUX('J', 3, AF14)>,
+				 <STM32_PINMUX('J', 4, AF14)>,
+				 <STM32_PINMUX('J', 5, AF14)>,
+				 <STM32_PINMUX('J', 6, AF14)>,
+				 <STM32_PINMUX('J', 7, AF14)>,
+				 <STM32_PINMUX('J', 8, AF14)>,
+				 <STM32_PINMUX('J', 9, AF14)>,
+				 <STM32_PINMUX('J', 10, AF14)>,
+				 <STM32_PINMUX('J', 11, AF14)>,
+				 <STM32_PINMUX('J', 13, AF14)>,
+				 <STM32_PINMUX('J', 14, AF14)>,
+				 <STM32_PINMUX('J', 15, AF14)>,
+				 <STM32_PINMUX('K', 0, AF14)>,
+				 <STM32_PINMUX('K', 1, AF14)>,
+				 <STM32_PINMUX('K', 2, AF14)>,
+				 <STM32_PINMUX('K', 4, AF14)>,
+				 <STM32_PINMUX('K', 5, AF14)>,
+				 <STM32_PINMUX('K', 6, AF14)>,
+				 <STM32_PINMUX('K', 7, AF14)>;
+			slew-rate = <2>;
+		};
+	};
+};
+
+&i2c3 {
+	pinctrl-0 = <&i2c3_pins_a>;
+	pinctrl-names = "default";
+	clock-frequency = <400000>;
+	status = "okay";
+
+	touchscreen@38 {
+		compatible = "edt,edt-ft5306";
+		reg = <0x38>;
+		interrupt-parent = <&gpioi>;
+		interrupts = <13 IRQ_TYPE_EDGE_FALLING>;
+		touchscreen-size-x = <480>;
+		touchscreen-size-y = <272>;
+	};
+};
+
+&ltdc {
+	pinctrl-0 = <&ltdc_pins_a>;
+	pinctrl-names = "default";
+	status = "okay";
+
+	port {
+		ltdc_out_rgb: endpoint {
+			remote-endpoint = <&panel_in_rgb>;
+		};
+	};
+};
+
+&sdio1 {
+	status = "okay";
+	vmmc-supply = <&vcc_3v3>;
+	cd-gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
+	pinctrl-names = "default", "opendrain";
+	pinctrl-0 = <&sdio_pins_a>;
+	pinctrl-1 = <&sdio_pins_od_a>;
+	bus-width = <4>;
+};
+
+&usart1 {
+	pinctrl-0 = <&usart1_pins_b>;
+	pinctrl-names = "default";
+	status = "okay";
+};
