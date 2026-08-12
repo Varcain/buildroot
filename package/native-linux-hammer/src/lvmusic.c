@@ -29,7 +29,7 @@ static const char *path_from_arg_or_env(int argc, char **argv, int index,
 	return fallback;
 }
 
-static void report_framebuffer(const char *path)
+static int report_framebuffer(const char *path)
 {
 	struct fb_var_screeninfo variable;
 	struct fb_fix_screeninfo fixed;
@@ -38,7 +38,7 @@ static void report_framebuffer(const char *path)
 	if (fd < 0) {
 		fprintf(stderr, "lvmusic: cannot inspect %s: %s\n", path,
 			strerror(errno));
-		return;
+		return -1;
 	}
 	if (ioctl(fd, FBIOGET_VSCREENINFO, &variable) == 0 &&
 	    ioctl(fd, FBIOGET_FSCREENINFO, &fixed) == 0) {
@@ -47,8 +47,19 @@ static void report_framebuffer(const char *path)
 		       path, (int)sizeof(fixed.id), fixed.id, variable.xres,
 		       variable.yres, variable.xres_virtual, variable.yres_virtual,
 		       variable.bits_per_pixel, fixed.line_length);
+		close(fd);
+		if (variable.xres != 480 || variable.yres != 272 ||
+		    variable.bits_per_pixel != 16 || fixed.line_length < 480 * 2) {
+			fprintf(stderr, "lvmusic: framebuffer contract requires "
+				"480x272 RGB565\n");
+			return -1;
+		}
+		return 0;
 	}
 	close(fd);
+	fprintf(stderr, "lvmusic: framebuffer ioctls failed for %s: %s\n",
+		path, strerror(errno));
+	return -1;
 }
 
 static int attach_pointer(lv_display_t *display, const char *path,
@@ -80,7 +91,8 @@ int main(int argc, char **argv)
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	setvbuf(stderr, NULL, _IOLBF, 0);
-	report_framebuffer(framebuffer);
+	if (report_framebuffer(framebuffer) != 0)
+		return EXIT_FAILURE;
 	printf("lvmusic: lvgl=9.5.0 color=RGB565 refresh_ms=33 "
 	       "render=software flush=linux-fbdev-pwrite dma2d=none "
 	       "buffer_lines=272 perf_log=1\n");

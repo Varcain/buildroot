@@ -205,6 +205,8 @@
 &sdio1 {
 	status = "okay";
 	vmmc-supply = <&vcc_3v3>;
+	/* Match the proven LXP + oveRTOS hammer runs' 2 MHz SD bus. */
+	max-frequency = <2000000>;
 	cd-gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
 	pinctrl-names = "default", "opendrain";
 	pinctrl-0 = <&sdio_pins_a>;
