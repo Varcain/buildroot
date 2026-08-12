@@ -9,7 +9,7 @@ database=$data_directory/shell.db
 stop_path=/tmp/ove-hammer.stop
 net_result_path=/tmp/ove-shell-net.json
 vacuum_sql='PRAGMA temp_store_directory="/data/.ove-hammer";VACUUM;'
-transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;SELECT 1;'
+transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;'
 
 lv_pid=
 net_pid=
@@ -29,6 +29,7 @@ esac
 
 rm -f "$stop_path" "$net_result_path" /tmp/ove-shell-db-ok /tmp/ove-shell-db-err \
 	/tmp/ove-shell-integrity /tmp/ove-shell-meta /tmp/ove-shell-live \
+	/tmp/ove-shell-retry-meta \
 	/tmp/ove-shell-db-error-bytes
 mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
@@ -63,6 +64,7 @@ while [ "$attempt" -lt 100 ]; do
 		break
 	fi
 	attempt=$((attempt + 1))
+	sleep 1
 done
 [ "$network_ready" -eq 1 ] || exit 6
 
@@ -79,17 +81,42 @@ printf '__RT_SCOPE_BEFORE_END__\n'
 # uptime values so the runner can use the same precise elapsed-time denominator
 # as the Lua and MicroPython drivers.
 submitted=0
+transaction_retries=0
 failure=none
 IFS=' ' read -r started_uptime ignored </proc/uptime
 deadline=$((${started_uptime%.*} + duration))
 while :; do
 	IFS=' ' read -r uptime ignored </proc/uptime
 	[ "${uptime%.*}" -ge "$deadline" ] && break
-	if ! /usr/bin/sqlite3 "$database" "$transaction" \
-		>>/tmp/ove-shell-db-ok 2>>/tmp/ove-shell-db-err; then
-		failure=transaction
-		break
-	fi
+	transaction_attempt=0
+	while :; do
+		/usr/bin/sqlite3 "$database" "$transaction" \
+			>/dev/null 2>>/tmp/ove-shell-db-err
+		transaction_status=$?
+		[ "$transaction_status" -eq 0 ] && break
+		transaction_retries=$((transaction_retries + 1))
+		/usr/bin/sqlite3 "$database" 'SELECT n FROM meta;' \
+			>/tmp/ove-shell-retry-meta 2>>/tmp/ove-shell-db-err
+		read -r retry_meta </tmp/ove-shell-retry-meta
+		expected_before=$((submitted * 8))
+		expected_after=$(((submitted + 1) * 8))
+		if [ "$retry_meta" = "$expected_after" ]; then
+			# COMMIT completed and only process teardown/status was ambiguous.
+			transaction_status=0
+			break
+		fi
+		if [ "$retry_meta" != "$expected_before" ]; then
+			failure=transaction-counter
+			break
+		fi
+		transaction_attempt=$((transaction_attempt + 1))
+		if [ "$transaction_attempt" -ge 3 ]; then
+			failure="transaction-$transaction_status"
+			break
+		fi
+		sleep 1
+	done
+	[ "$failure" != none ] && break
 	submitted=$((submitted + 1))
 	if [ $((submitted % 20)) -eq 0 ]; then
 		IFS=' ' read -r uptime ignored </proc/uptime
@@ -114,6 +141,7 @@ while [ "$attempt" -lt 600 ]; do
 		break
 	fi
 	attempt=$((attempt + 1))
+	sleep 1
 done
 network_error=missing
 if [ -s "$net_result_path" ] &&
@@ -144,8 +172,9 @@ rows=$((transactions * 8))
 wc -c </tmp/ove-shell-db-err >/tmp/ove-shell-db-error-bytes
 read -r error_bytes </tmp/ove-shell-db-error-bytes
 
-printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s integrity=%s error=%s\n' \
-	"$transactions" "$rows" "$meta" "$live_rows" "$integrity" "$failure"
+printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s retries=%s integrity=%s error=%s\n' \
+	"$transactions" "$rows" "$meta" "$live_rows" "$transaction_retries" \
+	"$integrity" "$failure"
 printf '__HAMMER_TIMING__:started_uptime=%s ended_uptime=%s\n' \
 	"$started_uptime" "$ended_uptime"
 printf '__HAMMER_NETWORK__:'
