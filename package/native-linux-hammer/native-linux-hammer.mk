@@ -8,6 +8,7 @@ NATIVE_LINUX_HAMMER_VERSION = 9.5.0
 NATIVE_LINUX_HAMMER_SITE = $(call github,lvgl,lvgl,v$(NATIVE_LINUX_HAMMER_VERSION))
 NATIVE_LINUX_HAMMER_LICENSE = MIT
 NATIVE_LINUX_HAMMER_LICENSE_FILES = LICENCE.txt
+NATIVE_LINUX_HAMMER_DEPENDENCIES = sqlite
 
 define NATIVE_LINUX_HAMMER_CONFIGURE_CMDS
 	cp $(@D)/lv_conf_template.h $(@D)/lv_conf.h
@@ -49,6 +50,7 @@ endef
 define NATIVE_LINUX_HAMMER_INSTALL_TARGET_CMDS
 	$(INSTALL) -D -m 0755 $(@D)/lvmusic $(TARGET_DIR)/usr/bin/lvmusic
 	$(INSTALL) -D -m 0755 $(@D)/hammer-uinput $(TARGET_DIR)/usr/bin/hammer-uinput
+	$(INSTALL) -D -m 0755 $(@D)/hammer-sqlite $(TARGET_DIR)/usr/bin/hammer-sqlite
 	$(INSTALL) -D -m 0755 $(@D)/linux-rt-latency $(TARGET_DIR)/usr/bin/linux-rt-latency
 	$(INSTALL) -D -m 0755 $(NATIVE_LINUX_HAMMER_PKGDIR)/native-linux-hammer \
 		$(TARGET_DIR)/usr/bin/native-linux-hammer

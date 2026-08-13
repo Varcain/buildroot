@@ -115,7 +115,7 @@ rm -f "$net_result" "$latency_result" "$lvgl_log" "$lvgl_log_all" "$db_errors" \
 mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
 
-/usr/bin/sqlite3 "$database" \
+/usr/bin/hammer-sqlite "$database" \
 	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
 	>/dev/null 2>"$db_errors" || exit 4
 
@@ -184,12 +184,12 @@ while :; do
 	[ "${uptime%.*}" -ge "$deadline" ] && break
 	transaction_attempt=0
 	while :; do
-		/usr/bin/sqlite3 "$database" "$transaction" \
+		/usr/bin/hammer-sqlite "$database" "$transaction" \
 			>/dev/null 2>>"$db_errors"
 		transaction_status=$?
 		[ "$transaction_status" -eq 0 ] && break
 		transaction_retries=$((transaction_retries + 1))
-		/usr/bin/sqlite3 "$database" 'SELECT n FROM meta;' \
+		/usr/bin/hammer-sqlite "$database" 'SELECT n FROM meta;' \
 			>/tmp/native-hammer-retry-meta 2>>"$db_errors"
 		read -r retry_meta </tmp/native-hammer-retry-meta
 		expected_before=$((submitted * 8))
@@ -214,7 +214,7 @@ while :; do
 	if [ $((submitted % 20)) -eq 0 ]; then
 		IFS=' ' read -r uptime ignored </proc/uptime
 		[ "${uptime%.*}" -ge "$deadline" ] && break
-		if ! /usr/bin/sqlite3 "$database" "$vacuum_sql" \
+		if ! /usr/bin/hammer-sqlite "$database" "$vacuum_sql" \
 			>/dev/null 2>>"$db_errors"; then
 			failure=vacuum
 			break
@@ -246,13 +246,13 @@ if ! wait "$latency_pid"; then
 fi
 latency_pid=
 
-/usr/bin/sqlite3 "$database" 'PRAGMA integrity_check;' \
+/usr/bin/hammer-sqlite "$database" 'PRAGMA integrity_check;' \
 	>/tmp/native-hammer-integrity 2>>"$db_errors"
 read -r integrity </tmp/native-hammer-integrity
-/usr/bin/sqlite3 "$database" 'SELECT n FROM meta;' \
+/usr/bin/hammer-sqlite "$database" 'SELECT n FROM meta;' \
 	>/tmp/native-hammer-meta 2>>"$db_errors"
 read -r meta </tmp/native-hammer-meta
-/usr/bin/sqlite3 "$database" 'SELECT count(*) FROM events;' \
+/usr/bin/hammer-sqlite "$database" 'SELECT count(*) FROM events;' \
 	>/tmp/native-hammer-live 2>>"$db_errors"
 read -r live_rows </tmp/native-hammer-live
 meta=${meta:-unknown}
