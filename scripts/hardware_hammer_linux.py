@@ -251,26 +251,37 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def record_build_metadata(output):
+def matching_build_file(build_dir, directory_glob, filename):
+    matches = sorted(build_dir.glob(directory_glob))
+    if len(matches) != 1:
+        return None
+    return matches[0] / filename
+
+
+def record_build_metadata(output, build_output, build_dir=None):
+    build_dir = build_dir or build_output / "build"
     files = {
-        "buildroot.config": ROOT / ".config",
-        "linux.config": ROOT / "output/build/linux-5.15.211/.config",
-        "uboot.config": ROOT / "output/build/uboot-2026.07/.config",
-        "busybox.config": ROOT / "output/build/busybox-1.38.0/.config",
-        "lvgl.config": ROOT / "output/build/native-linux-hammer-9.5.0/lv_conf.h",
+        "buildroot.config": build_output / ".config",
+        "linux.config": matching_build_file(build_dir, "linux-[0-9]*", ".config"),
+        "uboot.config": matching_build_file(build_dir, "uboot-*", ".config"),
+        "busybox.config": matching_build_file(build_dir, "busybox-*", ".config"),
+        "lvgl.config": matching_build_file(
+            build_dir, "native-linux-hammer-*", "lv_conf.h"
+        ),
     }
     copied = {}
     for name, source in files.items():
-        if source.is_file():
+        if source is not None and source.is_file():
             destination = output / name
             shutil.copy2(source, destination)
             copied[name] = sha256(destination)
     images = {}
     for name in (
-        "sdcard.img", "rootfs.ext2", "data.vfat", "zImage",
+        "sdcard.img", "rootfs.ext2", "data.vfat", "zImage", "xipImage",
+        "uImage.xip", "qspi-hammer-xip.img",
         "stm32f746-disco-hammer.dtb", "u-boot.bin",
     ):
-        path = ROOT / "output/images" / name
+        path = build_output / "images" / name
         if path.is_file():
             images[name] = {"bytes": path.stat().st_size, "sha256": sha256(path)}
     commit = run(["git", "rev-parse", "HEAD"], timeout=10).stdout.strip()
@@ -288,10 +299,11 @@ def record_build_metadata(output):
         },
         "configuration_sha256": copied,
         "images": images,
+        "build_output": str(build_output),
     }
 
 
-def archive_build_only(output, blockers):
+def archive_build_only(output, build_output, build_dir, blockers):
     output.mkdir(parents=True, exist_ok=True)
     summary = {
         "status": "BUILD_PASS",
@@ -307,7 +319,7 @@ def archive_build_only(output, blockers):
             "rendering": "software LVGL draw + Linux fbdev pwrite; no DMA2D",
             "latency": "CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch",
         },
-        "build": record_build_metadata(output),
+        "build": record_build_metadata(output, build_output, build_dir),
     }
     (output / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(f"BUILD_PASS: hardware=NOT_RUN output={output}")
@@ -428,6 +440,14 @@ def main():
     parser.add_argument("--deploy-only", action="store_true")
     parser.add_argument("--archive-build-only", action="store_true")
     parser.add_argument("--hardware-blocker", action="append", default=[])
+    parser.add_argument(
+        "--build-output", type=Path, default=ROOT / "output-hammer-qspi-xip",
+        help="Buildroot O= directory whose configurations and images are archived",
+    )
+    parser.add_argument(
+        "--build-dir", type=Path,
+        help="overridden Buildroot BUILD_DIR (defaults to BUILD_OUTPUT/build)",
+    )
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.duration < 1 or args.duration > 3600:
@@ -436,8 +456,12 @@ def main():
         parser.error("non-300-second runs require --allow-smoke and are not comparable")
 
     if args.archive_build_only:
-        output = args.output or ROOT / "output" / "hammer-results" / "poc-build"
-        archive_build_only(output, args.hardware_blocker)
+        output = (
+            args.output or args.build_output / "hammer-results" / "poc-build"
+        )
+        archive_build_only(
+            output, args.build_output, args.build_dir, args.hardware_blocker
+        )
         return
 
     if not args.skip_server_deploy:
@@ -456,7 +480,10 @@ def main():
         return
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    output = args.output or ROOT / "output" / "hammer-results" / f"native-linux-{stamp}"
+    output = (
+        args.output or args.build_output / "hammer-results" /
+        f"native-linux-{stamp}"
+    )
     output.mkdir(parents=True, exist_ok=False)
     identity = target_identity(args.target, args.jump, args.ssh_config)
     (output / "identity.log").write_text(identity)
@@ -477,7 +504,9 @@ def main():
     summary["captured_at_utc"] = datetime.now(timezone.utc).isoformat()
     summary["target_identity_log"] = "identity.log"
     summary["benchmark_log"] = "benchmark.log"
-    summary["build"] = record_build_metadata(output)
+    summary["build"] = record_build_metadata(
+        output, args.build_output, args.build_dir
+    )
     (output / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(
         f"{summary['status']}: sqlite={summary['sqlite'].get('transactions')} "
