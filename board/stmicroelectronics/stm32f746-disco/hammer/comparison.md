@@ -1,71 +1,108 @@
 # Native Linux versus LXP + oveRTOS
 
-## Current status
+## Accepted native result
 
-The native image and runner are complete, but no native-Linux hardware number
-exists yet.  At the final host check there was no ST-LINK VCP, USB device, or
-removable SD device, and no SSH agent was available for the Pi.  Consequently,
-all Linux benchmark cells remain `NOT_RUN`; manufacturing deltas from the LXP
-numbers would be misleading.
+The native Linux shell workload passed on hardware on 2026-08-14. The exact
+machine-readable result is:
 
-The primary reference is the freshest successful 300-second shell result that
-implements the current completion/error and row/meta/live-row contract:
+`output-hammer-qspi-xip/hammer-results/native-linux-strict300-embedded-final-300s-20260814/result.json`
 
-`/home/varcain/projects/private/hIRoic/oveRTOS/output/zephyr-single-sector-full-20260812/zephyr-shell.json`
+Raw evidence in `output-hammer-qspi-xip/hammer-results/`:
 
-It reports `Linux overtos 6.1.0 Zephyr 4.4.0 ove-bf9a39c-dirty
-lxp-1fa50f8`.  The result itself is `PASS`, but the dirty oveRTOS identity is a
-provenance gap.  It is therefore a current-contract reference, not a pristine
-release benchmark.
+- `native-linux-strict300-boot-20260814.log`: U-Boot, full Linux boot, login,
+  identities, mounts, devices, addresses, and embedded binary hashes;
+- `native-linux-strict300-embedded-final-300s-20260814.log`: the definitive
+  unedited serial benchmark log and return status;
+- `native-linux-strict300-postrun-20260814.log`: cold integrity `ok`, no
+  FAT/MMC/I/O error, and a
+  successful sync/unmount;
+- `native-linux-strict300-smoke-30s-20260814.log`: the prior
+  passing smoke run.
 
-| Metric | Zephyr + LXP shell reference | Native Linux baseline |
+The accepted full QSPI image SHA-256 is
+`4821e9b3c7fff933f86d1a995b92259389c953d516ceaa75c696fff640888ac2`.
+It contains Linux 5.15.211, the QSPI-XIP kernel at `0x90100000`, and the
+read-only linear CramFS root at `0x90800000`; U-Boot 2026.07 remains in
+internal flash. The recorded kernel configuration is `CONFIG_PREEMPT_NONE`.
+The boot log identifies the kernel build as Buildroot
+`2026.05-740-gc7a58ca96d-dirty`; the result JSON records the exact source
+commit, dirty paths, configuration hashes, and image hashes that were present
+for the run. The final source changes are committed separately after hardware
+validation.
+
+Root mounted read-only at 2.657 s with 6,712 KiB of 8 MiB reported available
+by the kernel; Ethernet linked at 6.108 s. The first XIP handoff after QSPI
+programming stalled at `Starting kernel ...`; a second ST-LINK reset booted
+successfully. This remains an unresolved boot gap.
+
+## Five-minute measurements
+
+The freshest successful clean-identity FreeRTOS shell result matching the
+current strict workload/result contract is used as the primary LXP reference:
+
+`/home/varcain/projects/private/hIRoic/oveRTOS/output/hammer-full-clean-sd-20260812/freertos-shell.json`
+
+It reports `FreeRTOS V11.2.0 ove-fa0ec69 lxp-1fa50f8`, 300 seconds, one
+completed error-free stream, the exact SQLite row/meta/live-row invariants,
+and zero workload failures. The older complete nine-run 2 MHz comparison at
+`output/language-hammer-20260811-final-2mhz/comparison.json` remains useful
+background. The primary reference JSON does not itself encode SD clock, so
+the Linux 24 MHz result must not be called storage-parity even though it uses
+the same benchmark lineage and physical card setup.
+
+| Metric | Native Linux | FreeRTOS + LXP reference |
 | --- | ---: | ---: |
-| Duration | 300 s | `NOT_RUN` |
-| SQLite transactions | 80 | `NOT_RUN` |
-| SQLite elapsed / rate | 313.0 s / 0.2556 tx/s | `NOT_RUN` |
-| Rows / meta / live rows | 640 / 640 / 128 | `NOT_RUN` |
-| Network | 65,470,464 bytes, 1.7453 Mbit/s | `NOT_RUN` |
-| Active LVGL samples | 783 | `NOT_RUN` |
-| FPS mean / median | 2.867 / 3 | `NOT_RUN` |
-| Render mean | 191.83 ms | `NOT_RUN` |
-| Flush mean | 14.58 ms | `NOT_RUN` |
-| LVGL CPU mean | 99.75% | `NOT_RUN` |
-| RT releases / executions / missed | 319,235 / 319,235 / 0 | `NOT_RUN` |
-| RT lifetime avg / p99 / p99.9 / max | 9.648 us / <=32 us / <=50 us / 77.167 us | `NOT_RUN` and different semantics |
+| Result | PASS | PASS |
+| Timed workload | 300 s | 300 s |
+| SQLite transactions | 94 | 164 |
+| SQLite elapsed / rate | 300.83 s / 0.3125 tx/s | 300.0 s / 0.5467 tx/s |
+| Rows / meta / live rows | 752 / 752 / 128 | 1312 / 1312 / 128 |
+| SQLite retries / errors / integrity | 0 / 0 bytes / ok | 0 / 0 bytes / ok |
+| Network | 12,976,128 bytes / 0.3457 Mbit/s | 52,363,264 bytes / 1.3945 Mbit/s |
+| Network elapsed / completed / errors | 300.297 s / 1 / 0 | 300.397 s / 1 / 0 |
+| Active LVGL samples | 86 | 617 |
+| FPS mean / median / p99 | 2.221 / 2 / 3 | 3.290 / 3 / 4 |
+| Render mean / median / p99 | 345.03 / 333 / 475 ms | 241.58 / 207 / 438 ms |
+| Flush mean / median / p99 | 21.35 / 16 / 57 ms | 7.02 / 7 / 12 ms |
+| Reported LVGL CPU mean | 100% | 98.55% |
+| Overall Linux CPU busy | 99.994% | not reported on the same basis |
+| Latency releases / executions / missed | 300,000 / 275,091 / 24,909 | 304,929 / 304,929 / 0 |
+| Late finishes | 17,739 | 0 |
+| Dispatch avg / p99 / p99.9 / max | 607.0 us / <=1 ms / <=1 ms / 103.258 ms | 9.611 us / <=20 us / <=100 us / 96.019 us |
 
-The last complete clean-identity nine-run set remains useful background:
+Raw deltas are directional only. Linux delivered 42.8% fewer SQLite
+transactions/s, 75.2% less network throughput, and 32.5% lower mean FPS. Its
+mean render time was 42.8% higher and mean flush time 204.1% higher. Those
+deltas combine scheduler, driver, SD-clock, rendering, and latency-load
+differences and must not be attributed to the kernel alone.
 
-`/home/varcain/projects/private/hIRoic/oveRTOS/output/language-hammer-20260811-final-2mhz/comparison.json`
+The Linux storage snapshots show five read sectors and 20,254 written sectors
+(9.89 MiB) during the measured interval. VFAT net allocation grew by 23 8 KiB
+clusters. Linux root had zero block I/O because it was the QSPI linear CramFS.
+The run ended with no filesystem warning and a clean `/data` unmount.
 
-Its shell rows were all 300-second `PASS` results:
+At the initial Linux snapshot, `linux-rt-latency` accounted for approximately
+62% CPU and software-rendered lvmusic for 27%; the CPU had 0% sampled idle.
+After the latency duration ended, lvmusic accounted for approximately 79%.
 
-| Engine | SQLite tx | Network Mbit/s | FPS mean | Render mean ms | Flush mean ms | Missed releases | RT lifetime max us |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| FreeRTOS | 133 | 1.402 | 3.414 | 224.94 | 7.13 | 0 | 96.833 |
-| NuttX | 110 | 2.064 | 2.802 | 198.09 | 13.54 | 0 | 42.259 |
-| Zephyr | 62 | 1.342 | 2.878 | 192.06 | 14.41 | 0 | 76.278 |
-
-These older network records predate the stricter server completion fields, so
-the nine-run set is background rather than the primary current-contract row.
-
-## Parity assessment
-
-The following gaps must accompany any raw deltas:
+## Parity gaps and directional bias
 
 | Gap | Likely bias | Consequence |
 | --- | --- | --- |
-| LXP uses its DMA2D draw unit and DMA2D framebuffer blit; native Linux is software draw plus fbdev `pwrite` | LXP | Display, CPU, SQLite, and network contention can all look better for LXP. |
-| Native Linux runs syscalls directly; LXP crosses the guest/personality/coordinator path | Linux | Syscall-heavy SQLite and network work can look better for Linux. |
-| Both use FAT `/data` and a 2 MHz, four-bit SD bus, but Linux may issue multiblock I/O while the current Zephyr reference deliberately uses bounded single-sector transfers | Linux for bulk throughput; durability effect indeterminate | Storage rates are not implementation-identical even with media, frequency, and SQLite pragmas held constant. |
-| Linux root and `/data` share the SD card; LXP loads its root from QSPI and uses SD for `/data` | LXP if Linux performs residual root I/O | The Linux root is read-only and runtime files are tmpfs to minimize this difference. |
-| Linux latency is absolute-clock timer-to-userspace `SCHED_FIFO`; oveRTOS measures TIM3 hardware release through IRQ/event dispatch to a host task and exposes CH1/CH2 | Linux path is shorter, while `PREEMPT_NONE` can bias Linux tails worse | Do not compare latency values as the same physical measurement. |
-| The Linux baseline is `CONFIG_PREEMPT_NONE`; the oveRTOS host response runs at its critical priority | LXP for dispatch tails | A later `CONFIG_PREEMPT` Linux run must be a separate result, never folded into baseline. |
-| Linux has 8 MiB SDRAM minus a 512 KiB DMA pool; LXP/oveRTOS has a different host/guest memory partition | Indeterminate | Available-memory and cache-pressure results need to be reported with each run. |
-| Play is injected through Linux uinput instead of LXP's writable physical event node | None expected after activation | Verify the same active scene from performance logs before accepting a run. |
-| The fresh Zephyr reference identifies a dirty oveRTOS tree | Indeterminate | Prefer a new clean-identity LXP shell run when the native hardware session is repeated. |
+| Native Linux SD cap is 24 MHz; the historical comparison is explicitly 2 MHz and the primary reference JSON does not attest its clock | Linux for FAT throughput | SQLite/network/display contention is not an apples-to-apples storage result. A Linux 2 MHz rerun is required. |
+| LXP uses DMA2D draw and framebuffer blit; Linux uses software LVGL drawing and fbdev `pwrite` | LXP | Linux spends much more CPU and wall time rendering/flushing. |
+| Linux syscalls are native; LXP crosses its guest/personality/coordinator path | Linux | Syscall-heavy work may look better on Linux. |
+| Both roots use QSPI and data uses SD/FAT, but Linux uses XIP CramFS while LXP uses its personality CPIO/rootfs path | Indeterminate | Root instruction/data fetch and cache pressure differ even though neither root writes SD. |
+| Linux uses PL180 PIO at 24 MHz; LXP storage engines use different SDMMC/DMA and transfer policies | Indeterminate, usually Linux for clock | Block timing and CPU cost are not driver-identical. |
+| Linux latency is `CLOCK_MONOTONIC` timer-to-userspace SCHED_FIFO; oveRTOS is TIM3 hardware release through IRQ/event dispatch to a critical host task with CH1/CH2 | Incomparable | Do not compare the numerical latency rows as one physical quantity. |
+| Linux is `PREEMPT_NONE`; oveRTOS schedules the response at critical priority | LXP for Linux dispatch tails | The Linux baseline misses 8.30% of releases. A `CONFIG_PREEMPT` experiment must be a distinct result. |
+| Linux drives Play through uinput while LXP writes its extended input node | None expected | Both reached the active player scene, but injection paths differ. |
+| Linux keeps SQLite in one process with a fixed MEMSYS5 heap; the reference shell uses its established personality-side execution path | Indeterminate | SQL, durability, transaction boundaries, and validations match, but process/allocation overhead does not. |
+| Host SSH agent was absent | None to workload | Serial captured the run; Dropbear jump-host administration was configured but not authenticated in this session. |
+| First XIP handoff needs a second ST-LINK reset | Linux availability disadvantage | It does not affect the timed workload but prevents claiming unattended cold boot. |
 
-The raw SQLite, network, and LVGL values are still useful observations of each
-complete system.  A claim of scheduler parity requires the Linux TIM3/PB4 and
-PG7 kernel implementation plus a two-channel scope capture; the userspace PoC
-is intentionally labelled weaker.
-
+The physical TIM3/PB4 1 kHz, 50 us CH1 pulse and PG7 CH2 response driver was
+not implemented. TIM3 is disabled and PB4/PG7 are not claimed in the final
+device tree, but a live ownership audit and safe kernel implementation remain
+required. Until then, the Linux latency result is explicitly a weaker
+timer-to-userspace scheduling measurement, not an oveRTOS scope replacement.

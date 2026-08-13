@@ -1,0 +1,123 @@
+{
+  "schema": 2,
+  "status": "PASS_WITH_PARITY_GAPS",
+  "directly_comparable": false,
+  "captured_date": "2026-08-14",
+  "native_linux": {
+    "result_path": "output-hammer-qspi-xip/hammer-results/native-linux-strict300-embedded-final-300s-20260814/result.json",
+    "raw_log_path": "output-hammer-qspi-xip/hammer-results/native-linux-strict300-embedded-final-300s-20260814.log",
+    "status": "PASS",
+    "returncode": 0,
+    "requested_duration_s": 300,
+    "scheduler": "CONFIG_PREEMPT_NONE",
+    "root": "read-only linear XIP CramFS in QSPI",
+    "data": "VFAT /dev/mmcblk0p1 on data-only SD",
+    "sd_bus_max_frequency_hz": 24000000,
+    "rendering": "software LVGL draw + Linux fbdev pwrite",
+    "qspi_image_sha256": "4821e9b3c7fff933f86d1a995b92259389c953d516ceaa75c696fff640888ac2",
+    "sqlite": {
+      "transactions": 94,
+      "elapsed_s": 300.83,
+      "transactions_per_second": 0.31246883621979193,
+      "rows": 752,
+      "meta": 752,
+      "live_rows": 128,
+      "retries": 0,
+      "integrity": "ok",
+      "error_bytes": 0
+    },
+    "network": {
+      "bytes": 12976128,
+      "elapsed_s": 300.297146005556,
+      "mbps": 0.34568768095478125,
+      "completed": 1,
+      "errors": 0
+    },
+    "lvgl": {
+      "active_samples": 86,
+      "fps_mean": 2.2209302325581395,
+      "fps_median": 2,
+      "render_ms_mean": 345.0348837209302,
+      "render_ms_median": 333,
+      "flush_ms_mean": 21.348837209302324,
+      "flush_ms_median": 16,
+      "cpu_percent_mean": 100.0
+    },
+    "latency": {
+      "measurement": "CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch",
+      "physical_reference": false,
+      "releases": 300000,
+      "executions": 275091,
+      "missed": 24909,
+      "late_finishes": 17739,
+      "dispatch_min_ns": 242900,
+      "dispatch_average_ns": 606953,
+      "dispatch_p99_upper_us": 1000,
+      "dispatch_p99_9_upper_us": 1000,
+      "dispatch_max_ns": 103258020
+    }
+  },
+  "primary_lxp_reference": {
+    "path": "/home/varcain/projects/private/hIRoic/oveRTOS/output/hammer-full-clean-sd-20260812/freertos-shell.json",
+    "status": "PASS",
+    "identity": "Linux overtos 6.1.0 FreeRTOS V11.2.0 ove-fa0ec69 lxp-1fa50f8 armv7l",
+    "requested_duration_s": 300,
+    "sqlite": {
+      "transactions": 164,
+      "elapsed_s": 300.0,
+      "transactions_per_second": 0.5466666666666666,
+      "rows": 1312,
+      "meta": 1312,
+      "live_rows": 128,
+      "retries": 0,
+      "integrity": "ok",
+      "error_bytes": 0
+    },
+    "network": {
+      "bytes": 52363264,
+      "elapsed_s": 300.3972828760743,
+      "mbps": 1.3945069941688362,
+      "completed": 1,
+      "errors": 0
+    },
+    "lvgl": {
+      "active_samples": 617,
+      "fps_mean": 3.2901134521880064,
+      "fps_median": 3,
+      "render_ms_mean": 241.57698541329012,
+      "render_ms_median": 207,
+      "flush_ms_mean": 7.021069692058346,
+      "flush_ms_median": 7,
+      "cpu_percent_mean": 98.54943273905997
+    },
+    "rt_scope": {
+      "measurement": "TIM3 hardware release to critical host task",
+      "delta_releases": 304929,
+      "delta_executions": 304929,
+      "delta_missed": 0,
+      "delta_late_finishes": 0,
+      "lifetime_dispatch_average_ns": 9611,
+      "lifetime_dispatch_p99_upper_us": 20,
+      "lifetime_dispatch_p99_9_upper_us": 100,
+      "lifetime_dispatch_max_ns": 96019
+    }
+  },
+  "parity_gaps": [
+    {"id": "sd-clock", "bias": "Linux", "linux": "24 MHz", "lxp": "2 MHz lineage; primary JSON does not attest clock"},
+    {"id": "rendering", "bias": "LXP", "linux": "software+pwrite", "lxp": "DMA2D draw+flush"},
+    {"id": "personality", "bias": "Linux", "linux": "native syscalls", "lxp": "guest/coordinator syscall path"},
+    {"id": "root-format", "bias": "indeterminate", "linux": "QSPI XIP CramFS", "lxp": "QSPI personality CPIO/rootfs"},
+    {"id": "sd-driver", "bias": "indeterminate", "linux": "PL180 PIO", "lxp": "engine-specific SDMMC/DMA policy"},
+    {"id": "latency-semantics", "bias": "incomparable", "linux": "software timer to userspace", "lxp": "TIM3 IRQ/event to host task plus scope pins"},
+    {"id": "preemption", "bias": "LXP", "linux": "PREEMPT_NONE", "lxp": "critical host priority"},
+    {"id": "sqlite-process-model", "bias": "indeterminate", "linux": "persistent fixed-heap worker", "lxp": "reference personality execution path"},
+    {"id": "cold-boot", "bias": "LXP", "detail": "first Linux XIP handoff needs a second ST-LINK reset"}
+  ],
+  "remaining": [
+    "repeat native Linux at a verified 2 MHz SD clock",
+    "implement safe TIM3/PB4-to-PG7 kernel scope driver and capture two channels",
+    "run a separately identified CONFIG_PREEMPT experiment",
+    "resolve first-handoff XIP boot stall",
+    "verify Dropbear jump-host login with a forwarded SSH agent"
+  ]
+}

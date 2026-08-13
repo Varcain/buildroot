@@ -15,33 +15,48 @@ explicitly disables `CONFIG_PREEMPT`.  That policy remains unchanged for the
 baseline and the first hammer result.
 
 The stock boot path writes U-Boot only to STM32 internal flash and loads the
-kernel, device tree, and root filesystem from SD.  Native Linux does not need
-QSPI, so the validated LXP root filesystem in QSPI is out of scope and must be
-preserved.
+kernel, device tree, and root filesystem from SD.  That was the initial
+baseline.  The user subsequently authorized replacing QSPI to test a minimal
+QSPI root and XIP kernel; every QSPI write therefore requires a full backup and
+readback verification, and restoration remains part of the deliverable.
 
 ### Hardware-driven boot-plan revision
 
-The later user-directed QSPI experiment proved a full read-only QSPI-root boot
-but changed the hammer feasibility decision.  With display, touch, Ethernet,
-init, and Dropbear present, only about 448 KiB remained free; loading the MMC
-driver exhausted memory before the benchmark applications could run.  The
-requested internal-flash XIP image is also 2,869,947 bytes versus 1,015,808
-bytes available after the upstream 32 KiB loader reservation.
+The user-directed QSPI experiment proved a full read-only QSPI-root boot and
+changed the hammer feasibility decision.  A copied-to-RAM QSPI root left only
+about 448 KiB free after display, touch, Ethernet, init, and Dropbear.  The
+requested internal-flash XIP image is also 2,913,695 bytes versus less than
+1 MiB of usable internal flash.
 
 The revised hammer path is therefore:
 
 1. retain U-Boot in internal flash;
 2. execute kernel text and read-only data in place from QSPI;
 3. keep the QSPI controller memory-mapped across the U-Boot-to-Linux handoff;
-4. boot the read-only ext2 root from SD and mount the second VFAT partition at
-   `/data`;
-5. use a small dynamically linked SQLite command wrapper so the reference
-   shell retains its per-transaction process boundary without mapping the
-   approximately 1.1 MiB statically linked SQLite CLI each time.
+4. map an 8 MiB read-only linear CramFS window at QSPI `0x90800000` and execute
+   eligible userspace text directly from it;
+5. use SD only for a data-only VFAT partition at `/data`;
+6. keep one dynamically linked SQLite worker alive, with a bounded 500 KiB
+   MEMSYS5 heap, because repeated FDPIC exec/mapping cannot be made reliable
+   under NOMMU fragmentation.
 
 This deliberately replaces the current QSPI contents and requires a verified
-full-range backup first.  It does not remove the SD requirement: both the
-Linux userspace and the parity-critical FAT data filesystem reside there.
+full-range backup first.  Linux boot no longer requires SD.  The benchmark
+still requires SD solely because parity requires persistent FAT `/data`.
+
+## Execution status (2026-08-14)
+
+Phases 1 through 7 are complete for the `CONFIG_PREEMPT_NONE` baseline.  The
+exact embedded 500 KiB-heap image passed a 30-second smoke test, a cold
+standalone SQLite integrity check, and the definitive 300-second run.  Serial,
+display, uinput automation, physical touch discovery, Ethernet, QSPI XIP root,
+and VFAT data I/O were verified on hardware.  Dropbear and the static address
+are configured, but the host had no SSH agent, so jump-host login could not be
+authenticated; serial was used for command and log capture.  The physical
+TIM3/PB4-to-PG7 scope implementation remains open, so Linux latency is the
+explicitly weaker userspace measurement.  Phase 8 is complete as a
+directional comparison only because SD clock, rendering acceleration, and
+latency semantics do not match the selected LXP reference.
 
 ## Phases and acceptance gates
 
@@ -71,13 +86,12 @@ by the experiment:
 - procfs/sysfs and the diagnostic commands needed to record identity, memory,
   mounts, interrupts, networking, storage, processes, and CPU use;
 - SQLite CLI, an HTTP receive client, and the native hammer utilities;
-- an ext root partition and a distinct VFAT `/data` partition on the same SD
-  image.
+- a read-only XIP CramFS root in QSPI and a data-only VFAT `/data` partition on
+  SD.
 
-The root filesystem should be mounted read-only or kept quiet during measured
-windows.  Runtime files belong in tmpfs and benchmark writes belong on
-`/data`.  Result documentation must state that root and data still share one
-physical SD medium.
+The root filesystem is mounted read-only. Runtime files belong in ramfs and
+benchmark writes belong on `/data`. Root and data do not share a physical
+medium in the final layout.
 
 Gate: the generated image has the expected partition table, `/data` is VFAT,
 and no credential secret exists in the repository or image.
@@ -95,7 +109,7 @@ Probe and record the actual devices and drivers for:
   is software, framebuffer-assisted, or DMA2D-assisted;
 - touchscreen/input coordinates and event capabilities;
 - STM32 Ethernet link and error counters;
-- SD/MMC block device, partition layout, ext root, and VFAT `/data`;
+- SD/MMC block device, data-only partition layout, and VFAT `/data`;
 - pinctrl, clock, PWM, and interrupt ownership relevant to TIM3, PB4, and PG7.
 
 Gate: display, touch, Ethernet, SD/VFAT, serial, and SSH each have a captured
@@ -136,8 +150,8 @@ Adapt the shell reference without changing its work:
 Replace `/proc/lxp_fs` with before/after `df`, `/proc/mounts`,
 `/proc/diskstats`, `statfs`, interface counters, CPU accounting, and process
 attribution.  Preserve unmodified raw output as well as normalized JSON.
-Scripts should be runnable from `/tmp` or `/data` so workload iteration does
-not require an image rebuild.
+Scripts are runnable from `/tmp` during iteration; the accepted result uses
+the copy embedded at `/usr/bin/native-linux-hammer` in the recorded CramFS.
 
 Gate: a short smoke run satisfies the same invariants before any 300-second
 run is accepted.
@@ -209,7 +223,8 @@ parity-gap table, and exact restoration steps.
 | Stock fragment removes block, multiuser, timerfd, sysctl, and crypto facilities | Re-enable only demonstrated dependencies in the derived config; retain the untouched baseline config and non-preempt policy. |
 | Native framebuffer/touch coverage may be incomplete in Linux 5.15 | Verify device-tree and driver binding from logs/sysfs; treat patches as separate logical changes. |
 | Native Linux may lack LXP's DMA2D path | Record the actual LVGL draw/flush backend; software rendering is not performance-parity and its directional bias must accompany results. |
-| Root ext and data VFAT share the SD card | Keep root quiet/read-only, snapshot disk counters, and disclose physical-media contention. |
+| QSPI root differs from LXP's personality CPIO layout | Keep it read-only, hash the full QSPI image, and report that only Linux executable/file reads use QSPI while SD carries only FAT data writes. |
+| Native Linux was stable only at a 24 MHz SD cap while the selected LXP lineage is the 2 MHz setup | Treat throughput and contention deltas as directional; a future 2 MHz Linux rerun is required for direct storage parity. |
 | FAT implementations and cache/writeback semantics differ | Match VFAT and SQLite durability pragmas, sync at defined boundaries, capture mount options, and avoid claiming semantic identity beyond those controls. |
 | Non-preemptible Linux can have long scheduling tails | Preserve it as the requested baseline; evaluate `CONFIG_PREEMPT` only as a separately identified follow-up. |
 | Absolute-clock latency lacks the oveRTOS hardware reference | Label it weaker and compare only when timer semantics are explicit; prefer CH1-to-CH2 data if the safe driver is completed. |
@@ -233,11 +248,15 @@ test -x output/stm32f746/freertos/linux_interop/flash
 output/stm32f746/freertos/linux_interop/flash
 ```
 
-QSPI now contains the Linux XIP experiment. Restore the exact pre-experiment
-16 MiB backup for byte-for-byte recovery, or restore the regular LXP rootfs
-with the verified programmer and image from the original Buildroot worktree
-as described in the handoff. The exact internal-flash backup can similarly be
-used instead of rebuilding a personality when exact recovery is required.
-The SD card has no automatic restoration source: its partition table and any
-existing `/data` files must be backed up before the approved write, and restored
-from that backup afterward.
+QSPI now contains the Linux XIP experiment.  The exact pre-Linux full-bank
+backup is
+`output-qspi/hardware-backup/qspi-before-linux-20260813T020133Z.bin`
+(SHA-256 `dc370faee88fc88cab1bf23ed1ecac90fd2e1c9d9b17bc42b967183b0225a753`).
+The exact internal-flash backup made in the same session is
+`output-qspi/hardware-backup/internal-flash-before-linux-20260813T020133Z.bin`
+(SHA-256 `1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c`).
+The regular verified oveRTOS flash launchers and LXP QSPI programmer are the
+preferred personality restoration path and are listed in `hammer/README.md`.
+The SD card is now a data-only MBR/FAT card; it was cleanly unmounted after the
+accepted run.  No whole-device pre-format image exists, so byte-exact recovery
+of content that predated provisioning is impossible; do not claim otherwise.
