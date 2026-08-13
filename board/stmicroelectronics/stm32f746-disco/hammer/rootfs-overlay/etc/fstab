@@ -3,5 +3,8 @@ sysfs             /sys      sysfs   defaults                         0 0
 devpts            /dev/pts  devpts  defaults,gid=5,mode=620          0 0
 ramfs             /run      ramfs   nosuid,nodev,mode=0755           0 0
 ramfs             /tmp      ramfs   nosuid,nodev,mode=1777           0 0
-# rcS mounts this explicitly when the optional benchmark partition exists.
+# rcS mounts one of these explicitly when an optional benchmark partition
+# exists. Partition 2 supports the SD-root baseline; partition 1 supports the
+# QSPI-root/data-only card.
 /dev/mmcblk0p2    /data     vfat    noauto,rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 0 0
+/dev/mmcblk0p1    /data     vfat    noauto,rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 0 0

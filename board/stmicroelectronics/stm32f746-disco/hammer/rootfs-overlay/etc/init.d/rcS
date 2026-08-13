@@ -45,10 +45,16 @@ fi
 # kernels cannot provide tmpfs, so use an otherwise-empty ramfs for bring-up.
 # The hammer preflight rejects ramfs and therefore cannot report it as parity.
 if ! grep -q '[[:space:]]/data[[:space:]]' /proc/mounts; then
-	if [ -b /dev/mmcblk0p2 ]; then
-		mount -t vfat -o rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 \
-			/dev/mmcblk0p2 /data || exit 1
-	else
+	data_device=
+	for candidate in /dev/mmcblk0p2 /dev/mmcblk0p1; do
+		if [ -b "$candidate" ] && \
+			mount -t vfat -o rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 \
+				"$candidate" /data; then
+			data_device=$candidate
+			break
+		fi
+	done
+	if [ -z "$data_device" ]; then
 		mount -t ramfs -o nosuid,nodev,mode=0700 ramfs /data || exit 1
 		echo "native Linux hammer: /data is volatile ramfs (no benchmark parity)"
 	fi

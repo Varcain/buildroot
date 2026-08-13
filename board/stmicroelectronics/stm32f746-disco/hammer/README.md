@@ -7,11 +7,12 @@ acceptance gates are in `../native-linux-hammer-plan.md`.
 
 The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
 flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
-uses SD for a read-only ext2 root plus FAT `/data`.  A complete QSPI-root boot
-was proven separately, but had only about 448 KiB free after init; adding MMC
-exhausted the 8 MiB SDRAM before lvmusic and SQLite could run.  The internal
-flash XIP kernel also cannot fit.  QSPI XIP therefore recovers kernel text and
-read-only-data RAM while preserving the required FAT-on-SD benchmark medium.
+mounts a minimal read-only SquashFS from another aligned QSPI window. The SD
+card is not in the boot path; it is used only for persistent FAT `/data` when
+running the parity benchmark. A copied-to-RAM QSPI-root boot was proven
+separately, but had only about 448 KiB free after init. Combining QSPI root
+with QSPI XIP recovers kernel text and read-only-data RAM without moving the
+root filesystem to SD. The internal-flash XIP kernel cannot fit.
 
 ## Reproduce the images
 
@@ -27,14 +28,19 @@ The relevant outputs are:
 - `output-hammer-qspi-xip/images/u-boot.bin`, for internal flash;
 - `output-hammer-qspi-xip/images/xipImage` and `uImage.xip`;
 - `output-hammer-qspi-xip/images/qspi-hammer-xip.img`, the complete verified
-  16 MiB QSPI layout with the legacy header at offset `0x0fffc0`, the
-  1 MiB-aligned XIP kernel at `0x100000`, and the DTB at `0x5f0000`;
-- `output-hammer-qspi-xip/images/rootfs.ext2`, a 64 MiB root filesystem
-  booted read-only;
-- `output-hammer-qspi-xip/images/data.vfat`, an empty 256 MiB FAT benchmark
-  filesystem;
-- `output-hammer-qspi-xip/images/sdcard.img`, containing ext2 root and FAT
-  `/data`.
+  16 MiB QSPI layout with the DTB at `0x0e0000`, legacy header at
+  `0x0fffc0`, 1 MiB-aligned XIP kernel at `0x100000`, and SquashFS at
+  `0x800000`;
+- `output-hammer-qspi-xip/images/rootfs.squashfs`, the minimal read-only root.
+
+The combined image layout is:
+
+| QSPI offset | CPU address | Slot size | Purpose |
+| --- | --- | ---: | --- |
+| `0x0e0000` | loaded to SDRAM | 64 KiB | device tree |
+| `0x0fffc0` | `0x900fffc0` | 64 bytes | legacy U-Boot header |
+| `0x100000` | `0x90100000` | to `0x800000` | XIP kernel |
+| `0x800000` | `0x90800000` | 4 MiB | read-only SquashFS root |
 
 The derived kernel remains `CONFIG_PREEMPT_NONE`.  The SD bus is capped at
 2 MHz to match the proven LXP + oveRTOS hammer runs.  LVGL 9.5.0 uses RGB565,
@@ -47,48 +53,29 @@ QSPI aperture as executable Normal, non-cacheable memory in region 3 and
 leaves the controller enabled. Linux immediately replaces region 3 with its
 own read-only XIP ROM mapping. The kernel image is deliberately 1 MiB aligned
 so its approximately 2.7 MiB text/rodata span fits the required power-of-two
-PMSA region without an invalid base/size combination.
+PMSA region without an invalid base/size combination. Linux then maps the
+4 MiB rootfs window as execute-never, privileged-read-only Normal memory and
+exposes it through `mtd-rom` plus the read-only MTD block layer. It never
+probes or resets the STM32 QSPI controller from which it executes.
 
-## Destructive SD-card gate
+## SD-card boundary
 
-No build command writes removable media.  Before imaging, discover the card:
+No build or boot command writes removable media, and the card does not need to
+be removed for QSPI bring-up. With no usable card Linux still boots and mounts
+volatile ramfs at `/data`; the benchmark preflight rejects that fallback.
 
-```sh
-lsblk -o NAME,PATH,SIZE,MODEL,TRAN,RM,RO,MOUNTPOINTS
-```
-
-Resolve and display one exact removable whole-disk path.  Back up any existing
-card, including benchmark data, and obtain explicit confirmation before
-unmounting or running either `dd`.  Substitute only the confirmed literal path
-for `/dev/EXACT_DEVICE`; do not use a glob or inferred device number.
-
-```sh
-sudo umount /dev/EXACT_PARTITION_1
-sudo umount /dev/EXACT_PARTITION_2
-sudo dd if=/dev/EXACT_DEVICE of=/safe/path/sdcard-before-native-linux.img \
-    bs=4M conv=fsync status=progress
-sync
-sudo dd if=output-hammer-qspi-xip/images/sdcard.img of=/dev/EXACT_DEVICE \
-    bs=4M conv=fsync status=progress
-sync
-```
-
-Unmount only partitions actually reported as mounted.  The generated image is
-321 MiB and has these expected MBR partitions:
-
-| Partition | Start sector | Size | Type | Use |
-| --- | ---: | ---: | --- | --- |
-| 1 | 2048 | 64 MiB | Linux/ext2 | read-only root |
-| 2 | 133120 | 256 MiB | W95 FAT | `/data` |
-
-Root and `/data` remain on the same physical card.  This is recorded in every
-result because unrelated root I/O could still contend with data I/O.
+For parity, `/data` must be an explicitly identified VFAT partition on the
+same SD card and 2 MHz bus used by LXP. The init script accepts partition 1 on
+a data-only card or partition 2 on the older SD-root layout. Discover and back
+up the exact device and obtain confirmation before creating, formatting, or
+imaging a partition. The currently inserted blank card is not modified by
+this procedure.
 
 ## Flash QSPI XIP, U-Boot, and capture the boot
 
 The XIP programmer first backs up all 16 MiB of the existing QSPI, then erases,
-programs, and verifies the complete new image.  This replaces the QSPI-root or
-LXP personality contents and is separate from the destructive SD-card gate.
+programs, and verifies the complete new image. This replaces the QSPI-root or
+LXP personality contents and does not access the SD card.
 
 ```sh
 board/stmicroelectronics/stm32f746-disco/hammer/flash_qspi_xip.sh \
@@ -123,8 +110,9 @@ python3 scripts/capture_serial_boot.py \
 
 Interactive settings are 115200 baud, 8N1, and no flow control.  Serial login
 is `root` / `root`.  Dropbear is key-only and uses the tracked public key; its
-private host key is generated once under `/data/.native-linux`, not on the
-read-only root.  After login, retain all of:
+private host key is generated under `/data/.native-linux`, not on the
+read-only root. Without VFAT it is regenerated in ramfs after each boot. After
+login, retain all of:
 
 ```sh
 uname -a
@@ -204,14 +192,6 @@ boards/stm32f746g-discovery/freertos/flash-qspi.sh \
     /home/varcain/projects/private/hIRoic/buildroot/output/images/rootfs.cpio
 ```
 
-Restore the SD card only to the same confirmed whole-disk device used above:
-
-```sh
-sudo dd if=/safe/path/sdcard-before-native-linux.img of=/dev/EXACT_DEVICE \
-    bs=4M conv=fsync status=progress
-sync
-```
-
-The backup is the only exact restoration source for the pre-existing partition
-table and `/data`; do not image the card until that backup exists or the user
-explicitly accepts losing it.
+No SD restoration is needed unless a later, separately confirmed benchmark
+step modifies it. If that happens, the pre-write whole-device backup is the
+only exact restoration source for the previous partition table and `/data`.

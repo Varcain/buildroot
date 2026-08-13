@@ -67,6 +67,14 @@
 	};
 
 	soc {
+		qspi_rootfs: rom@90800000 {
+			compatible = "mtd-rom";
+			reg = <0x90800000 0x00400000>;
+			bank-width = <1>;
+			linux,mtd-name = "rootfs";
+			no-unaligned-direct-access;
+		};
+
 		ltdc: display-controller@40016800 {
 			compatible = "st,stm32-ltdc";
 			reg = <0x40016800 0x200>;

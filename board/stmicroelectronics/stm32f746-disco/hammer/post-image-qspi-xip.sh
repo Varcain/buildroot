@@ -3,17 +3,27 @@ set -euo pipefail
 
 flash_size=$((0x01000000))
 kernel_offset=$((0x000fffc0))
-dtb_offset=$((0x005f0000))
-kernel_slot_size=$((dtb_offset - kernel_offset))
+dtb_offset=$((0x000e0000))
+kernel_payload_offset=$((0x00100000))
+rootfs_offset=$((0x00800000))
+kernel_slot_size=$((rootfs_offset - kernel_offset))
 dtb_slot_size=$((0x00010000))
+rootfs_slot_size=$((0x00400000))
 xip_address=0x90100000
 
 xip_image="${BINARIES_DIR}/xipImage"
 legacy_image="${BINARIES_DIR}/uImage.xip"
 dtb="${BINARIES_DIR}/stm32f746-disco-hammer.dtb"
+rootfs="${BINARIES_DIR}/rootfs.squashfs"
 image="${BINARIES_DIR}/qspi-hammer-xip.img"
 manifest="${BINARIES_DIR}/qspi-hammer-xip.manifest"
 mkimage="${HOST_DIR}/bin/mkimage"
+
+# Do not leave the retired SD-root artifacts looking current after an
+# incremental rebuild. This profile boots only the QSPI SquashFS.
+for obsolete in rootfs.ext2 data.vfat sdcard.img; do
+	rm -f "${BINARIES_DIR}/${obsolete}"
+done
 
 if [ ! -x "$mkimage" ]; then
 	set -- "${BUILD_DIR}"/uboot-*/tools/mkimage
@@ -24,7 +34,7 @@ if [ ! -x "$mkimage" ]; then
 	mkimage=$1
 fi
 
-for input in "$xip_image" "$dtb"; do
+for input in "$xip_image" "$dtb" "$rootfs"; do
 	[ -f "$input" ] || { echo "missing QSPI XIP input: $input" >&2; exit 1; }
 done
 
@@ -35,6 +45,7 @@ done
 
 kernel_size=$(stat -c%s "$legacy_image")
 dtb_size=$(stat -c%s "$dtb")
+rootfs_size=$(stat -c%s "$rootfs")
 [ "$kernel_size" -le "$kernel_slot_size" ] || {
 	echo "XIP uImage exceeds its QSPI slot: $kernel_size" >&2
 	exit 1
@@ -43,25 +54,41 @@ dtb_size=$(stat -c%s "$dtb")
 	echo "DTB exceeds its QSPI slot: $dtb_size" >&2
 	exit 1
 }
+[ "$rootfs_size" -le "$rootfs_slot_size" ] || {
+	echo "SquashFS exceeds its QSPI slot: $rootfs_size" >&2
+	exit 1
+}
+[ $((kernel_offset + 64)) -eq "$kernel_payload_offset" ] || {
+	echo "legacy header must end exactly at the XIP payload" >&2
+	exit 1
+}
 
 dd if=/dev/zero bs=1M count=16 status=none | tr '\000' '\377' >"$image"
 dd if="$legacy_image" of="$image" bs=64 seek=$((kernel_offset / 64)) \
 	conv=notrunc status=none
 dd if="$dtb" of="$image" bs=64K seek=$((dtb_offset / 65536)) \
 	conv=notrunc status=none
+dd if="$rootfs" of="$image" bs=64K seek=$((rootfs_offset / 65536)) \
+	conv=notrunc status=none
 [ "$(stat -c%s "$image")" -eq "$flash_size" ]
 
 {
-	printf 'format=qspi-hammer-xip-v1\n'
+	printf 'format=qspi-hammer-xip-rootfs-v2\n'
 	printf 'flash_base=0x90000000\n'
 	printf 'flash_size=0x%08x\n' "$flash_size"
 	printf 'kernel_offset=0x%08x\n' "$kernel_offset"
+	printf 'kernel_payload_offset=0x%08x\n' "$kernel_payload_offset"
 	printf 'kernel_xip_address=%s\n' "$xip_address"
 	printf 'kernel_size=0x%08x\n' "$kernel_size"
 	printf 'kernel_sha256=%s\n' "$(sha256sum "$legacy_image" | awk '{print $1}')"
 	printf 'dtb_offset=0x%08x\n' "$dtb_offset"
 	printf 'dtb_size=0x%08x\n' "$dtb_size"
 	printf 'dtb_sha256=%s\n' "$(sha256sum "$dtb" | awk '{print $1}')"
+	printf 'rootfs_offset=0x%08x\n' "$rootfs_offset"
+	printf 'rootfs_mpu_address=0x90800000\n'
+	printf 'rootfs_slot_size=0x%08x\n' "$rootfs_slot_size"
+	printf 'rootfs_size=0x%08x\n' "$rootfs_size"
+	printf 'rootfs_sha256=%s\n' "$(sha256sum "$rootfs" | awk '{print $1}')"
 	printf 'image_sha256=%s\n' "$(sha256sum "$image" | awk '{print $1}')"
 } >"$manifest"
 
