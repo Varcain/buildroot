@@ -277,7 +277,7 @@ def record_build_metadata(output, build_output, build_dir=None):
             copied[name] = sha256(destination)
     images = {}
     for name in (
-        "rootfs.squashfs", "zImage", "xipImage", "uImage.xip",
+        "rootfs.cramfs", "zImage", "xipImage", "uImage.xip",
         "qspi-hammer-xip.img", "qspi-hammer-xip.manifest",
         "stm32f746-disco-hammer.dtb", "u-boot.bin",
     ):
@@ -312,7 +312,7 @@ def archive_build_only(output, build_output, build_dir, blockers):
         "hardware_blockers": blockers,
         "captured_at_utc": datetime.now(timezone.utc).isoformat(),
         "image_contract": {
-            "root": "minimal read-only SquashFS in QSPI",
+            "root": "read-only XIP-enabled CramFS in QSPI",
             "data": "VFAT on SD partition 1 (data-only) or legacy partition 2",
             "shared_physical_medium": False,
             "sd_bus_max_frequency_hz": 2000000,
@@ -420,7 +420,7 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
             "Linux latency is CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch; "
             "it has no TIM3 hardware reference and no CH1/CH2 scope output.",
             "LVGL uses software rendering and Linux fbdev pwrite; DMA2D is not used.",
-            "Linux rootfs is QSPI SquashFS; only FAT /data uses the SD medium.",
+            "Linux rootfs is QSPI XIP CramFS; only FAT /data uses the SD medium.",
         ],
         "directly_comparable_to_dma2d_lxp": False,
     }

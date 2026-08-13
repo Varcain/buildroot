@@ -7,7 +7,10 @@ acceptance gates are in `../native-linux-hammer-plan.md`.
 
 The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
 flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
-mounts a minimal read-only SquashFS from another aligned QSPI window. The SD
+mounts a read-only XIP-enabled CramFS from another aligned QSPI window. ELF
+read-only segments execute directly from QSPI, which preserves enough of the
+board's 8 MiB SDRAM for the concurrent GUI, SQLite, network, and latency work.
+The SD
 card is not in the boot path; it is used only for persistent FAT `/data` when
 running the parity benchmark. A copied-to-RAM QSPI-root boot was proven
 separately, but had only about 448 KiB free after init. Combining QSPI root
@@ -29,9 +32,9 @@ The relevant outputs are:
 - `output-hammer-qspi-xip/images/xipImage` and `uImage.xip`;
 - `output-hammer-qspi-xip/images/qspi-hammer-xip.img`, the complete verified
   16 MiB QSPI layout with the DTB at `0x0e0000`, legacy header at
-  `0x0fffc0`, 1 MiB-aligned XIP kernel at `0x100000`, and SquashFS at
+  `0x0fffc0`, 1 MiB-aligned XIP kernel at `0x100000`, and CramFS at
   `0x800000`;
-- `output-hammer-qspi-xip/images/rootfs.squashfs`, the minimal read-only root.
+- `output-hammer-qspi-xip/images/rootfs.cramfs`, the XIP-enabled read-only root.
 
 The combined image layout is:
 
@@ -40,7 +43,7 @@ The combined image layout is:
 | `0x0e0000` | loaded to SDRAM | 64 KiB | device tree |
 | `0x0fffc0` | `0x900fffc0` | 64 bytes | legacy U-Boot header |
 | `0x100000` | `0x90100000` | to `0x800000` | XIP kernel |
-| `0x800000` | `0x90800000` | 4 MiB | read-only SquashFS root |
+| `0x800000` | `0x90800000` | 8 MiB | read-only XIP CramFS root |
 
 The derived kernel remains `CONFIG_PREEMPT_NONE`.  The SD bus is capped at
 2 MHz to match the proven LXP + oveRTOS hammer runs.  LVGL 9.5.0 uses RGB565,
@@ -54,8 +57,9 @@ leaves the controller enabled. Linux immediately replaces region 3 with its
 own read-only XIP ROM mapping. The kernel image is deliberately 1 MiB aligned
 so its approximately 2.7 MiB text/rodata span fits the required power-of-two
 PMSA region without an invalid base/size combination. Linux then maps the
-4 MiB rootfs window as execute-never, privileged-read-only Normal memory and
-exposes it through `mtd-rom` plus the read-only MTD block layer. It never
+8 MiB rootfs window as executable, user-readable, read-only Normal memory and
+exposes it through `mtd-rom` directly to CramFS. Filesystem permissions and
+the ROM MTD driver prevent writes, while the MPU permits direct user XIP. It never
 probes or resets the STM32 QSPI controller from which it executes.
 
 ## SD-card boundary

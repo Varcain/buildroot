@@ -1,7 +1,7 @@
 From 57cf71b02ff2c62927703604f41f89154dbc24cb Mon Sep 17 00:00:00 2001
 From: hIRoic native Linux PoC <noreply@local>
 Date: Thu, 13 Aug 2026 16:00:00 +0200
-Subject: [PATCH] ARM: pmsa: map read-only XIP rootfs window
+Subject: [PATCH] ARM: pmsa: map executable read-only XIP rootfs window
 
 An XIP kernel can share a memory-mapped NOR aperture with a filesystem,
 provided that the controller remains in memory-mapped mode. ARMv7 PMSA
@@ -9,19 +9,22 @@ otherwise leaves the non-kernel part of that aperture covered only by the
 strongly-ordered background region. Apart from being needlessly slow, that
 mapping is unsuitable for the ordinary memory accesses made by physmap.
 
-Add an optional, execute-never, privileged-read-only Normal-memory MPU
-region for such a filesystem. Install it after RAM: region ordering then
-preserves the early RAM mapping while giving the rootfs window higher
-priority than any broad XIP kernel region.
+Add an optional, user-readable, executable, read-only Normal-memory MPU
+region for such a filesystem. This permits CramFS to map read-only FDPIC
+segments directly from the MTD device instead of copying them into scarce
+SDRAM. Install it after RAM: region ordering then preserves the early RAM
+mapping while giving the rootfs window higher priority than any broad XIP
+kernel region.
 
 This is deliberately a static boot-time contract. It neither owns nor
 reconfigures the flash controller from which the kernel is executing.
 
 Signed-off-by: hIRoic native Linux PoC <noreply@local>
 ---
- arch/arm/Kconfig       | 31 +++++++++++++++++++++++++++++++
- arch/arm/mm/pmsa-v7.c | 18 ++++++++++++++++++
- 2 files changed, 49 insertions(+)
+ arch/arm/Kconfig         | 31 +++++++++++++++++++++++++++++++
+ arch/arm/include/asm/mpu.h |  1 +
+ arch/arm/mm/pmsa-v7.c   | 18 ++++++++++++++++++
+ 3 files changed, 50 insertions(+)
 
 diff --git a/arch/arm/Kconfig b/arch/arm/Kconfig
 index 2e8091e2d8a8..4530389128d4 100644
@@ -32,11 +35,11 @@ index 2e8091e2d8a8..4530389128d4 100644
 +	bool "Map a read-only filesystem beside the XIP kernel"
 +	depends on XIP_KERNEL && ARM_MPU
 +	help
-+	  Map one additional power-of-two-aligned flash window as privileged
-+	  read-only, execute-never Normal memory in the ARMv7 PMSA MPU. This
-+	  permits a read-only filesystem to share the directly addressed NOR
-+	  aperture with an XIP kernel without allowing Linux to reconfigure
-+	  the flash controller.
++	  Map one additional power-of-two-aligned flash window as user-readable,
++	  executable, read-only Normal memory in the ARMv7 PMSA MPU. This permits
++	  an XIP-capable read-only filesystem to map executable segments directly
++	  from the NOR aperture without allowing Linux to reconfigure the flash
++	  controller.
 +
 +	  The physical address and size order must describe a non-overlapping,
 +	  power-of-two-aligned region. The platform must arrange for the flash
@@ -54,12 +57,23 @@ index 2e8091e2d8a8..4530389128d4 100644
 +	int "XIP root filesystem size order"
 +	range 8 31
 +	depends on XIP_ROOTFS
-+	default 22
++	default 23
 +	help
-+	  Base-2 order of the MPU region size. For example, 22 selects a
-+	  4 MiB region and requires 4 MiB alignment.
++	  Base-2 order of the MPU region size. For example, 23 selects an
++	  8 MiB region and requires 8 MiB alignment.
 +
  config XIP_DEFLATED_DATA
+diff --git a/arch/arm/include/asm/mpu.h b/arch/arm/include/asm/mpu.h
+index bb624f84a0e1..90d864628860 100644
+--- a/arch/arm/include/asm/mpu.h
++++ b/arch/arm/include/asm/mpu.h
+@@ -45,5 +45,6 @@
+ /* Access permission bits of ACR (only define those that we use)*/
+ #define PMSAv7_AP_PL1RO_PL0NA	(0x5 << 8)
++#define PMSAv7_AP_PL1RO_PL0RO	(0x6 << 8)
+ #define PMSAv7_AP_PL1RW_PL0RW	(0x3 << 8)
+ #define PMSAv7_AP_PL1RW_PL0R0	(0x2 << 8)
+ #define PMSAv7_AP_PL1RW_PL0NA	(0x1 << 8)
 diff --git a/arch/arm/mm/pmsa-v7.c b/arch/arm/mm/pmsa-v7.c
 index 9f0b99d9f9c6..34e0b8e30e4a 100644
 --- a/arch/arm/mm/pmsa-v7.c
@@ -76,11 +90,11 @@ index 9f0b99d9f9c6..34e0b8e30e4a 100644
 +	/*
 +	 * Install this after RAM. On XIP boot region 3 initially covers ROM;
 +	 * the final kernel ROM regions above already make executing text safe
-+	 * before this higher-priority, execute-never window replaces it.
++	 * before this higher-priority, user-executable window replaces it.
 +	 */
 +	err |= mpu_setup_region(region++, CONFIG_XIP_ROOTFS_PHYS_ADDR,
 +				CONFIG_XIP_ROOTFS_SIZE_ORDER,
-+				PMSAv7_ACR_XN | PMSAv7_AP_PL1RO_PL0NA |
++				PMSAv7_AP_PL1RO_PL0RO |
 +				PMSAv7_RGN_NORMAL, 0, false);
 +#endif
 +

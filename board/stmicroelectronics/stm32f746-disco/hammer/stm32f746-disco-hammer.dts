@@ -75,7 +75,7 @@
 	soc {
 		qspi_rootfs: rom@90800000 {
 			compatible = "mtd-rom";
-			reg = <0x90800000 0x00400000>;
+			reg = <0x90800000 0x00800000>;
 			bank-width = <1>;
 			linux,mtd-name = "rootfs";
 			no-unaligned-direct-access;

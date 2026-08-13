@@ -75,8 +75,8 @@ grep -q ' /data vfat ' /proc/mounts || {
 	echo 'native-linux-hammer: /data is not mounted as VFAT' >&2
 	exit 4
 }
-grep -Eq ' / (ext2|squashfs) ro[, ]' /proc/mounts || {
-	echo 'native-linux-hammer: root filesystem is not supported read-only ext2/squashfs' >&2
+grep -Eq ' / (ext2|cramfs|squashfs) ro[, ]' /proc/mounts || {
+	echo 'native-linux-hammer: root filesystem is not a supported read-only filesystem' >&2
 	exit 4
 }
 
@@ -133,7 +133,7 @@ read -r automation_input <"$uinput_event"
 # FDPIC must allocate lvmusic's roughly 1 MiB load segment contiguously on
 # this NOMMU target. Reclaim clean QSPI pages and launch it before the SQLite
 # helper can fragment the only order-8 buddy block.
-if grep -q 'root=/dev/mtdblock0' /proc/cmdline &&
+if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline &&
 	[ -w /proc/sys/vm/drop_caches ]; then
 	echo 3 >/proc/sys/vm/drop_caches
 fi

@@ -8,20 +8,20 @@ kernel_payload_offset=$((0x00100000))
 rootfs_offset=$((0x00800000))
 kernel_slot_size=$((rootfs_offset - kernel_offset))
 dtb_slot_size=$((0x00010000))
-rootfs_slot_size=$((0x00400000))
+rootfs_slot_size=$((0x00800000))
 xip_address=0x90100000
 
 xip_image="${BINARIES_DIR}/xipImage"
 legacy_image="${BINARIES_DIR}/uImage.xip"
 dtb="${BINARIES_DIR}/stm32f746-disco-hammer.dtb"
-rootfs="${BINARIES_DIR}/rootfs.squashfs"
+rootfs="${BINARIES_DIR}/rootfs.cramfs"
 image="${BINARIES_DIR}/qspi-hammer-xip.img"
 manifest="${BINARIES_DIR}/qspi-hammer-xip.manifest"
 mkimage="${HOST_DIR}/bin/mkimage"
 
 # Do not leave the retired SD-root artifacts looking current after an
-# incremental rebuild. This profile boots only the QSPI SquashFS.
-for obsolete in rootfs.ext2 data.vfat sdcard.img; do
+# incremental rebuild. This profile boots only the QSPI XIP CramFS.
+for obsolete in rootfs.ext2 rootfs.squashfs data.vfat sdcard.img; do
 	rm -f "${BINARIES_DIR}/${obsolete}"
 done
 
@@ -55,7 +55,7 @@ rootfs_size=$(stat -c%s "$rootfs")
 	exit 1
 }
 [ "$rootfs_size" -le "$rootfs_slot_size" ] || {
-	echo "SquashFS exceeds its QSPI slot: $rootfs_size" >&2
+	echo "CramFS exceeds its QSPI slot: $rootfs_size" >&2
 	exit 1
 }
 [ $((kernel_offset + 64)) -eq "$kernel_payload_offset" ] || {
@@ -73,7 +73,7 @@ dd if="$rootfs" of="$image" bs=64K seek=$((rootfs_offset / 65536)) \
 [ "$(stat -c%s "$image")" -eq "$flash_size" ]
 
 {
-	printf 'format=qspi-hammer-xip-rootfs-v2\n'
+	printf 'format=qspi-hammer-xip-cramfs-v3\n'
 	printf 'flash_base=0x90000000\n'
 	printf 'flash_size=0x%08x\n' "$flash_size"
 	printf 'kernel_offset=0x%08x\n' "$kernel_offset"

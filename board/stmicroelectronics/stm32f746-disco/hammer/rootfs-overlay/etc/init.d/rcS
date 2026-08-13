@@ -8,7 +8,7 @@ ip link set lo up
 # reserve then invokes the OOM killer even though enough pages remain for the
 # tiny init/getty processes.  Keep a 64 KiB emergency reserve on this
 # single-purpose 8 MiB image.  Do not change the SD baseline's VM policy.
-if grep -q 'root=/dev/mtdblock0' /proc/cmdline && \
+if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline && \
 	[ -w /proc/sys/vm/min_free_kbytes ]; then
 	echo 64 >/proc/sys/vm/min_free_kbytes
 fi
@@ -73,7 +73,7 @@ fi
 # Reclaim those clean pages after the SSH server is mapped and before stmmac
 # preallocates its 64 receive pages. Without this ordering, the 8 MiB system
 # cannot initialize the otherwise valid minimum-size RX ring.
-if grep -q 'root=/dev/mtdblock0' /proc/cmdline && \
+if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline && \
 	[ -w /proc/sys/vm/drop_caches ]; then
 	echo 3 >/proc/sys/vm/drop_caches
 fi
