@@ -277,8 +277,8 @@ def record_build_metadata(output, build_output, build_dir=None):
             copied[name] = sha256(destination)
     images = {}
     for name in (
-        "sdcard.img", "rootfs.ext2", "data.vfat", "zImage", "xipImage",
-        "uImage.xip", "qspi-hammer-xip.img",
+        "rootfs.squashfs", "zImage", "xipImage", "uImage.xip",
+        "qspi-hammer-xip.img", "qspi-hammer-xip.manifest",
         "stm32f746-disco-hammer.dtb", "u-boot.bin",
     ):
         path = build_output / "images" / name
@@ -312,9 +312,9 @@ def archive_build_only(output, build_output, build_dir, blockers):
         "hardware_blockers": blockers,
         "captured_at_utc": datetime.now(timezone.utc).isoformat(),
         "image_contract": {
-            "root": "64 MiB ext2, booted read-only",
-            "data": "256 MiB VFAT on partition 2",
-            "shared_physical_medium": True,
+            "root": "minimal read-only SquashFS in QSPI",
+            "data": "VFAT on SD partition 1 (data-only) or legacy partition 2",
+            "shared_physical_medium": False,
             "sd_bus_max_frequency_hz": 2000000,
             "rendering": "software LVGL draw + Linux fbdev pwrite; no DMA2D",
             "latency": "CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch",
@@ -420,7 +420,7 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
             "Linux latency is CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch; "
             "it has no TIM3 hardware reference and no CH1/CH2 scope output.",
             "LVGL uses software rendering and Linux fbdev pwrite; DMA2D is not used.",
-            "Linux rootfs and FAT /data share one physical SD medium.",
+            "Linux rootfs is QSPI SquashFS; only FAT /data uses the SD medium.",
         ],
         "directly_comparable_to_dma2d_lxp": False,
     }
