@@ -26,9 +26,15 @@
 		#size-cells = <1>;
 		ranges;
 
-		dma_pool: dma-pool@c0780000 {
+		/*
+		 * DRM fbdev consumes two RGB565 scanout buffers from the default
+		 * coherent pool.  A power-of-two-aligned 1 MiB pool leaves an
+		 * MPU-friendly 7 MiB normal-RAM span while providing space for stmmac
+		 * descriptor rings and other coherent allocations.
+		 */
+		dma_pool: dma-pool@c0700000 {
 			compatible = "shared-dma-pool";
-			reg = <0xc0780000 0x00080000>;
+			reg = <0xc0700000 0x00100000>;
 			no-map;
 			linux,dma-default;
 		};
@@ -89,8 +95,9 @@
 			compatible = "st,stm32-dwmac", "snps,dwmac-3.50a";
 			reg = <0x40028000 0x8000>;
 			reg-names = "stmmaceth";
-			interrupts = <61>, <62>;
-			interrupt-names = "macirq", "eth_wake_irq";
+			/* The STM32F7 NVIC wake line cannot be shared by stmmac. */
+			interrupts = <61>;
+			interrupt-names = "macirq";
 			clocks = <&rcc 0 STM32F7_AHB1_CLOCK(ETHMAC)>,
 				 <&rcc 0 STM32F7_AHB1_CLOCK(ETHMACTX)>,
 				 <&rcc 0 STM32F7_AHB1_CLOCK(ETHMACRX)>;
