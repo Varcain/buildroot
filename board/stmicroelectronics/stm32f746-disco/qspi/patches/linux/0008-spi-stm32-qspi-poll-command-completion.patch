@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hIRoic Linux PoC <noreply@localhost>
+Date: Thu, 13 Aug 2026 15:00:00 +0200
+Subject: [PATCH] spi: stm32-qspi: poll command completion and flag clear
+
+The STM32F746 QSPI-backed SquashFS root intermittently reads corrupt data
+when 64-byte indirect reads are issued back-to-back.  Serial diagnostics
+between operations hide the failure, indicating that the next command can
+start before the preceding transfer-complete state is fully retired.
+
+Backport the current upstream polling model instead of relying on the old
+completion interrupt race.  Also confirm that SR_TCF/SR_TEF have cleared
+after writing FCR before declaring the operation complete.  This serializes
+successive indirect reads at the controller's observable state transition,
+without an arbitrary fixed delay.
+
+This is a board-scoped no-SD proof-of-concept workaround.  Five consecutive
+complete U-Boot-to-userspace warm boots mounted the QSPI SquashFS after the
+change; the previous implementation failed intermittently.
+
+Signed-off-by: hIRoic Linux PoC <noreply@localhost>
+---
+ drivers/spi/spi-stm32-qspi.c | 37 ++++++++++++++++++-------------------
+ 1 file changed, 18 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/spi/spi-stm32-qspi.c b/drivers/spi/spi-stm32-qspi.c
+--- a/drivers/spi/spi-stm32-qspi.c
++++ b/drivers/spi/spi-stm32-qspi.c
+@@ -87,6 +87,7 @@
+ #define STM32_FIFO_TIMEOUT_US 30000
+ #define STM32_BUSY_TIMEOUT_US 100000
+ #define STM32_ABT_TIMEOUT_US 100000
++#define STM32_WAIT_CMD_TIMEOUT_US 5000
+ #define STM32_COMP_TIMEOUT_MS 1000
+ #define STM32_AUTOSUSPEND_DELAY -1
+ 
+@@ -328,32 +329,30 @@ static int stm32_qspi_wait_nobusy(struct stm32_qspi *qspi)
+ 						 STM32_BUSY_TIMEOUT_US);
+ }
+ 
+-static int stm32_qspi_wait_cmd(struct stm32_qspi *qspi,
+-			       const struct spi_mem_op *op)
++static int stm32_qspi_wait_cmd(struct stm32_qspi *qspi)
+ {
+-	u32 cr, sr;
+-	int err = 0;
++	u32 sr;
++	int clear_err, err = 0;
+ 
+-	if ((readl_relaxed(qspi->io_base + QSPI_SR) & SR_TCF) ||
+-	    qspi->fmode == CCR_FMODE_APM)
++	if (qspi->fmode == CCR_FMODE_APM)
+ 		goto out;
+ 
+-	reinit_completion(&qspi->data_completion);
+-	cr = readl_relaxed(qspi->io_base + QSPI_CR);
+-	writel_relaxed(cr | CR_TCIE | CR_TEIE, qspi->io_base + QSPI_CR);
+-
+-	if (!wait_for_completion_timeout(&qspi->data_completion,
+-				msecs_to_jiffies(STM32_COMP_TIMEOUT_MS))) {
+-		err = -ETIMEDOUT;
+-	} else {
+-		sr = readl_relaxed(qspi->io_base + QSPI_SR);
+-		if (sr & SR_TEF)
+-			err = -EIO;
+-	}
++	err = readl_relaxed_poll_timeout_atomic(qspi->io_base + QSPI_SR, sr,
++						(sr & (SR_TEF | SR_TCF)), 1,
++						STM32_WAIT_CMD_TIMEOUT_US);
++	if (!err && (sr & SR_TEF))
++		err = -EIO;
+ 
+ out:
+ 	/* clear flags */
+ 	writel_relaxed(FCR_CTCF | FCR_CTEF, qspi->io_base + QSPI_FCR);
++	clear_err = readl_relaxed_poll_timeout_atomic(qspi->io_base + QSPI_SR,
++							sr,
++							!(sr & (SR_TEF | SR_TCF)),
++							1,
++							STM32_WAIT_CMD_TIMEOUT_US);
++	if (!err)
++		err = clear_err;
+ 	if (!err)
+ 		err = stm32_qspi_wait_nobusy(qspi);
+ 
+@@ -449,7 +448,7 @@ static int stm32_qspi_send(struct spi_mem *mem, const struct spi_mem_op *op)
+ 		goto abort;
+ 
+ 	/* wait end of tx in indirect mode */
+-	err = stm32_qspi_wait_cmd(qspi, op);
++	err = stm32_qspi_wait_cmd(qspi);
+ 	if (err)
+ 		goto abort;
+ 
+-- 
+2.52.0

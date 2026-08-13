@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hIRoic Linux PoC <noreply@localhost>
+Date: Thu, 13 Aug 2026 15:05:00 +0200
+Subject: [PATCH] spi: stm32-qspi: apply ES0290 memory-map workaround
+
+STM32F74x/F75x erratum ES0290 section 2.4.3 requires software to clear
+QUADSPI_AR and abort the previous indirect read before entering
+memory-mapped mode.  Without that sequence, U-Boot intermittently shifts a
+QSPI read by one stale byte, causing a warm reboot to fail with "zimage:
+Bad magic!".
+
+Apply the documented sequence before programming CCR for a memory-mapped
+operation.  This permits aligned and repeatable kernel and DTB loads.
+
+Signed-off-by: hIRoic Linux PoC <noreply@localhost>
+---
+ drivers/spi/stm32_qspi.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/drivers/spi/stm32_qspi.c b/drivers/spi/stm32_qspi.c
+--- a/drivers/spi/stm32_qspi.c
++++ b/drivers/spi/stm32_qspi.c
+@@ -319,6 +319,26 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
+ 		ccr |= (_stm32_qspi_get_mode(op->data.buswidth)
+ 			<< STM32_QSPI_CCR_DMODE_SHIFT);
+ 
++	/*
++	 * STM32F74x/F75x erratum ES0290 2.4.3: an indirect operation can
++	 * leave AR[1:0] set and corrupt the first subsequent memory-mapped
++	 * read.  Clear AR and abort the old transaction before entering
++	 * memory-mapped mode.
++	 */
++	if (mode == STM32_QSPI_CCR_MEM_MAP) {
++		writel(0, &priv->regs->ar);
++		setbits_le32(&priv->regs->cr, STM32_QSPI_CR_ABORT);
++		timeout = readl_poll_timeout(&priv->regs->cr, cr,
++					     !(cr & STM32_QSPI_CR_ABORT),
++					     STM32_ABT_TIMEOUT_US);
++		if (timeout)
++			return timeout;
++
++		ret = _stm32_qspi_wait_for_not_busy(priv);
++		if (ret)
++			return ret;
++	}
++
+ 	writel(ccr, &priv->regs->ccr);
+ 
+ 	if (op->addr.nbytes && mode != STM32_QSPI_CCR_MEM_MAP)
+-- 
+2.52.0

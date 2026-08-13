@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hIRoic Linux PoC <noreply@localhost>
+Date: Thu, 13 Aug 2026 14:00:00 +0200
+Subject: [PATCH] spi: stm32-qspi: use indirect reads on STM32F746 PoC
+
+The STM32F746 no-MMU proof of concept intermittently faults when the CPU
+copies directly from the QSPI memory aperture after the U-Boot-to-Linux
+controller handoff.  Lowering the QSPI clock does not prevent the fault.
+
+Decline creation of a direct-read mapping so the SPI-mem core uses its
+supported spi_mem_exec_op() fallback.  The STM32 controller then performs
+reads in CCR_FMODE_INDR through the FIFO instead of dereferencing the QSPI
+aperture.  This is intentionally scoped to the board's QSPI Buildroot
+configuration; it trades read performance for a reliable root filesystem.
+
+Signed-off-by: hIRoic Linux PoC <noreply@localhost>
+---
+ drivers/spi/spi-stm32-qspi.c | 14 +-------------
+ 1 file changed, 1 insertion(+), 13 deletions(-)
+
+diff --git a/drivers/spi/spi-stm32-qspi.c b/drivers/spi/spi-stm32-qspi.c
+index 35bc95a1a5bf..9d0ddb9df3e7 100644
+--- a/drivers/spi/spi-stm32-qspi.c
++++ b/drivers/spi/spi-stm32-qspi.c
+@@ -504,19 +504,7 @@ static int stm32_qspi_exec_op(struct spi_mem *mem, const struct spi_mem_op *op)
+ 
+ static int stm32_qspi_dirmap_create(struct spi_mem_dirmap_desc *desc)
+ {
+-	struct stm32_qspi *qspi = spi_controller_get_devdata(desc->mem->spi->master);
+-
+-	if (desc->info.op_tmpl.data.dir == SPI_MEM_DATA_OUT)
+-		return -EOPNOTSUPP;
+-
+-	/* should never happen, as mm_base == null is an error probe exit condition */
+-	if (!qspi->mm_base && desc->info.op_tmpl.data.dir == SPI_MEM_DATA_IN)
+-		return -EOPNOTSUPP;
+-
+-	if (!qspi->mm_size)
+-		return -EOPNOTSUPP;
+-
+-	return 0;
++	return -EOPNOTSUPP;
+ }
+ 
+ static ssize_t stm32_qspi_dirmap_read(struct spi_mem_dirmap_desc *desc,
+-- 
+2.50.1

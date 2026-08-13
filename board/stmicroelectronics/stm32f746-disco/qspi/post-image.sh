@@ -4,7 +4,6 @@ set -euo pipefail
 flash_size=$((0x01000000))
 kernel_offset=$((0x00000000))
 kernel_read_size=$((0x00300000))
-kernel_qspi_read_size=$((kernel_read_size + 1))
 dtb_offset=$((0x005f0000))
 dtb_slot_size=$((0x00010000))
 rootfs_offset=$((0x00600000))
@@ -53,7 +52,6 @@ dd if="$rootfs" of="$image" bs=64K seek=$((rootfs_offset / 65536)) conv=notrunc 
 	printf 'kernel_offset=0x%08x\n' "$kernel_offset"
 	printf 'kernel_size=0x%08x\n' "$kernel_size"
 	printf 'kernel_read_size=0x%08x\n' "$kernel_read_size"
-	printf 'kernel_qspi_read_size=0x%08x\n' "$kernel_qspi_read_size"
 	printf 'kernel_sha256=%s\n' "$(sha256sum "$kernel" | awk '{print $1}')"
 	printf 'dtb_offset=0x%08x\n' "$dtb_offset"
 	printf 'dtb_size=0x%08x\n' "$dtb_size"

@@ -1,0 +1,38 @@
+From ae16cc18f37bcdea7d4ef57a5e526a60b09a1506 Mon Sep 17 00:00:00 2001
+From: Patrice Chotard <patrice.chotard@foss.st.com>
+Date: Wed, 11 May 2022 09:46:44 +0200
+Subject: [PATCH] spi: stm32-qspi: Remove SR_BUSY bit check before sending command
+
+Waiting for SR_BUSY bit when receiving a new command is not needed.
+SR_BUSY bit is already managed in the previous command treatment.
+
+This is an upstream backport from Linux commit
+ae16cc18f37bcdea7d4ef57a5e526a60b09a1506. It prevents the STM32F746
+QSPI controller from timing out on a command issued after a memory-mapped
+read/abort sequence while mounting the QSPI-backed root filesystem.
+
+Signed-off-by: Patrice Chotard <patrice.chotard@foss.st.com>
+Link: https://lore.kernel.org/r/20220511074644.558874-4-patrice.chotard@foss.st.com
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Signed-off-by: OpenAI Codex <codex@openai.com>
+---
+ drivers/spi/spi-stm32-qspi.c | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/drivers/spi/spi-stm32-qspi.c b/drivers/spi/spi-stm32-qspi.c
+--- a/drivers/spi/spi-stm32-qspi.c
++++ b/drivers/spi/spi-stm32-qspi.c
+@@ -369,10 +369,6 @@ static int stm32_qspi_send(struct spi_mem *mem, const struct spi_mem_op *op)
+ 		op->dummy.buswidth, op->data.buswidth,
+ 		op->addr.val, op->data.nbytes);
+ 
+-	err = stm32_qspi_wait_nobusy(qspi);
+-	if (err)
+-		goto abort;
+-
+ 	cr = readl_relaxed(qspi->io_base + QSPI_CR);
+ 	cr &= ~CR_PRESC_MASK & ~CR_FSEL;
+ 	cr |= FIELD_PREP(CR_PRESC_MASK, flash->presc);
+-- 
+2.43.0
+

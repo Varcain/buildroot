@@ -43,8 +43,20 @@ CONFIG_SLOB=y
 # and releases a physically contiguous 255 KiB before the FDPIC init exec.
 CONFIG_INET_TABLE_PERTURB_ORDER=8
 
-# U-Boot supplies neither an initrd nor loadable modules in the QSPI design.
+# U-Boot supplies no initrd in the QSPI design.
 # CONFIG_BLK_DEV_INITRD is not set
+
+# The MMC block device is not needed for the QSPI root mount. Its asynchronous
+# card discovery fragmented the last order-7 blocks while FDPIC was mapping
+# PID 1. Keep module support deliberately narrow and load the host from rcS,
+# after init's executable and libc mappings are established.
+CONFIG_MODULES=y
+# CONFIG_MODULE_UNLOAD is not set
+CONFIG_MMC_ARMMMCI=m
+
+# Dropbear sessions require /dev/ptmx and devpts. The generic STM32 no-MMU
+# defconfig disables them under EXPERT.
+CONFIG_UNIX98_PTYS=y
 
 # Peripherals and filesystems not used by the native-Linux PoC.  Keep DRM,
 # STM32 DWMAC, I2C/FT5x06, MMC and VFAT through the hammer fragment.

@@ -3,8 +3,41 @@
 hostname stm32f746-linux
 ip link set lo up
 
-mkdir -p /sys/kernel/debug /run/dropbear
-mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || true
+# The QSPI profile leaves only a few hundred KiB after DRM and the supported
+# 64-entry Ethernet rings are active.  Linux's default 256 KiB low-memory
+# reserve then invokes the OOM killer even though enough pages remain for the
+# tiny init/getty processes.  Keep a 64 KiB emergency reserve on this
+# single-purpose 8 MiB image.  Do not change the SD baseline's VM policy.
+if grep -q 'root=/dev/mtdblock0' /proc/cmdline && \
+	[ -w /proc/sys/vm/min_free_kbytes ]; then
+	echo 64 >/proc/sys/vm/min_free_kbytes
+fi
+
+mkdir -p /run/dropbear
+if [ -d /sys/kernel/debug ]; then
+	mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || true
+fi
+
+# On the QSPI-root build the STM32 MMCI host is a module. Loading it before
+# PID 1 fragmented the order-7 FDPIC mappings; loading it afterward works but
+# the card stack consumes the remaining order-0 reserve. Keep it as an
+# explicit diagnostic option until kernel XIP releases enough SDRAM. The SD
+# baseline has the driver built in, so this block is a no-op there.
+if grep -qw qspi_mmc=1 /proc/cmdline; then
+	for mmci_module in /lib/modules/*/kernel/drivers/mmc/host/armmmci.ko; do
+		if [ -f "$mmci_module" ]; then
+			insmod "$mmci_module" || \
+				echo "native Linux hammer: MMCI module load failed (continuing without SD)"
+		fi
+	done
+
+	# Give an inserted card time to enumerate, but do not require it for boot.
+	mmc_wait=0
+	while [ ! -b /dev/mmcblk0 ] && [ "$mmc_wait" -lt 20 ]; do
+		usleep 100000
+		mmc_wait=$((mmc_wait + 1))
+	done
+fi
 
 # A VFAT SD partition is required for a comparable hammer run, but it is not
 # required merely to boot the QSPI image.  Mount it only when it exists so the
@@ -23,10 +56,21 @@ fi
 mkdir -p /data/.native-linux
 
 host_key=/data/.native-linux/dropbear_ed25519_host_key
+ln -sf "$host_key" /run/dropbear/dropbear_ed25519_host_key
 if [ ! -s "$host_key" ]; then
+	# Generate the key before Ethernet consumes its fixed RX buffers. Dropbear
+	# itself remains inetd-only because fork() is unavailable on NOMMU.
 	dropbearkey -t ed25519 -f "$host_key" || exit 1
 fi
-ln -sf "$host_key" /run/dropbear/dropbear_ed25519_host_key
+
+# Indirect QSPI reads populate the page cache while the read-only root starts.
+# Reclaim those clean pages after the SSH server is mapped and before stmmac
+# preallocates its 64 receive pages. Without this ordering, the 8 MiB system
+# cannot initialize the otherwise valid minimum-size RX ring.
+if grep -q 'root=/dev/mtdblock0' /proc/cmdline && \
+	[ -w /proc/sys/vm/drop_caches ]; then
+	echo 3 >/proc/sys/vm/drop_caches
+fi
 
 if ip link show eth0 >/dev/null 2>&1; then
 	ip addr flush dev eth0

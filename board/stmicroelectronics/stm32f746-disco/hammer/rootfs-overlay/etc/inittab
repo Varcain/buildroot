@@ -1,7 +1,7 @@
+::sysinit:/bin/mkdir -p /dev/pts
 ::sysinit:/bin/mount -a
-::sysinit:/bin/mkdir -p /run/dropbear /data
 ::sysinit:/etc/init.d/rcS
 ttySTM0::respawn:/sbin/getty -L ttySTM0 115200 vt100
-::respawn:/usr/sbin/inetd -f /etc/inetd.conf
+::once:/usr/libexec/native-linux-inetd
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/bin/umount -a -r

@@ -1,12 +1,14 @@
 {
-  "schema": "stm32f746-native-linux-qspi-bringup-v1",
+  "schema": "stm32f746-native-linux-qspi-bringup-v2",
   "date": "2026-08-13",
   "board": "STM32F746G-DISCO",
+  "source_commit_before_final_commit": "747c5c824b77bd147d8c9916cbd31a372d084025",
   "build": {
-    "buildroot": "2026.05-737-gbe2faef25a-dirty",
+    "buildroot": "2026.05-739-g747c5c824b-dirty",
     "linux": "5.15.211",
     "uboot": "2026.07",
     "toolchain": "arm-buildroot-uclinuxfdpiceabi-gcc 15.3.0",
+    "clean_linux_and_uboot_rebuild_passed": true,
     "scheduler": {
       "CONFIG_PREEMPT_NONE": true,
       "CONFIG_PREEMPT_VOLUNTARY": false,
@@ -16,11 +18,15 @@
   "configurations": {
     "qspi_buildroot": {
       "path": "output-qspi/.config",
-      "sha256": "db1144709d04950746d6ca27032b2685f4b293f1836a438a0ccd72086a0308d7"
+      "sha256": "9ab6b7376e07beb9d0d9a10f4787ef88d9a4484857929e80f9a75d8179aab2ec"
     },
     "qspi_linux": {
       "path": "output-qspi/build/linux-5.15.211/.config",
-      "sha256": "cba1f4482aa3261fcc4834afb328532611d374adf7f40088fe91ead01449da9e"
+      "sha256": "0fbcb2ca81f8f0bb23265c14d4609ab2bce64ee4e53f973dbc27d204a8407731"
+    },
+    "qspi_uboot": {
+      "path": "output-qspi/build/uboot-2026.07/.config",
+      "sha256": "d9ba78b59ad84ef0f26f9c11b89fdd83bd541f39d02693ec36b00bceb23e18c6"
     },
     "internal_xip_buildroot": {
       "path": "output-internal-xip/.config",
@@ -37,73 +43,91 @@
     "qspi": {
       "model": "n25q128a13",
       "bytes": 16777216,
-      "base": "0x90000000"
+      "base": "0x90000000",
+      "linux_clock_hz": 25000000
     },
     "sd": {
-      "detected": true,
-      "kernel_device": "/dev/mmcblk0",
-      "reported_capacity": "14.9 GiB",
-      "partitions_detected": 0,
-      "modified_by_experiment": false
+      "modified_by_experiment": false,
+      "required_for_boot": false,
+      "required_for_fair_fat_sqlite_benchmark": true
     }
   },
-  "qspi_image": {
-    "path": "output-qspi/images/qspi-linux.img",
-    "bytes": 16777216,
-    "sha256": "96d4c80b3c5ee4225f7104460abffac5b5f29cb7fd7c2d8a826c3bdea67db804",
-    "manifest": {
-      "path": "output-qspi/images/qspi-linux.manifest",
-      "sha256": "cfb2ac39a417d02ea7743f46c890af268cfbdebdf63d552c98d34799f4a13dcb"
-    },
-    "full_hardware_readback_match": true,
-    "payloads": {
-      "kernel": {
-        "offset": "0x00000000",
-        "bytes": 1832528,
-        "sha256": "609b77100dd9a562a19f8762b802f22522d1f680c0f893a4c62d042250b6f4e3"
+  "flashed_artifacts": {
+    "qspi_image": {
+      "path": "output-qspi/images/qspi-linux.img",
+      "bytes": 16777216,
+      "sha256": "fad9fb17bfb2db786f1785ae1208fcbd99df46bb840d2e148880d40d733a7438",
+      "full_openocd_verify_match": true,
+      "manifest": {
+        "path": "output-qspi/images/qspi-linux.manifest",
+        "sha256": "30695db064c13dc8f310e66f9c98c1a0ef6b86c25cee3d97e513eb39d2632d67"
       },
-      "dtb": {
-        "offset": "0x005f0000",
-        "bytes": 17901,
-        "sha256": "f509adbd9f84a6df8292c598c9d7825f624d25782742c200634e9322442f4f05"
-      },
-      "rootfs": {
-        "offset": "0x00600000",
-        "bytes": 2961408,
-        "filesystem": "squashfs-gzip-read-only",
-        "sha256": "9ce1acfd860ae5a78179f320c954f99325a3c71f33976c737e3376bbd6ff3075"
+      "payloads": {
+        "kernel": {
+          "offset": "0x00000000",
+          "bytes": 1924192,
+          "read_slot_bytes": 3145728,
+          "sha256": "1220f0ba73cbffc17ae9dde3e5133257413e6df5483082964283028930546c76"
+        },
+        "dtb": {
+          "offset": "0x005f0000",
+          "bytes": 17885,
+          "sha256": "738f9fc256ce923ae931750a50cbe6a07ad3b981fd7ba741ea9f5fa738ed566b"
+        },
+        "rootfs": {
+          "offset": "0x00600000",
+          "bytes": 3383296,
+          "filesystem": "squashfs-gzip-read-only",
+          "sha256": "636c9746b4cece7c96ac654da6ad30a32564cd31ce759bfbb5cf5fe88dd40baf"
+        }
       }
+    },
+    "internal_flash_bootloader": {
+      "path": "output-qspi/images/u-boot.bin",
+      "bytes": 370656,
+      "sha256": "7ae2186bba2685bfc40477bd306f29291ed2b2a24f82d6977a6f4638dfab679f",
+      "openocd_verify_match": true
     }
-  },
-  "internal_flash_bootloader": {
-    "path": "output-qspi/images/u-boot.bin",
-    "bytes": 370624,
-    "sha256": "ac35fab65a64a62be7804a534f017629d4fa8ab2088f577fda29bd1fb028cfcb",
-    "flashed": true
   },
   "boot": {
     "uboot_started": true,
     "kernel_started": true,
     "qspi_root_mounted_read_only": true,
-    "root_mount_time_seconds": 1.533557,
-    "ethernet_probed": true,
-    "touch_input_probed": true,
-    "drm_framebuffer_probed": true,
-    "mmc_probed": true,
-    "userspace_prompt_reached": false,
-    "ssh_reached": false,
-    "failure": {
-      "stage": "FDPIC init dynamic library mapping",
-      "requested_contiguous_bytes": 405504,
-      "free_memory_kib": 692,
-      "largest_free_block_kib": 256,
-      "message": "/sbin/init: can't map '/lib/libc.so.0'"
+    "root_mount_time_seconds": 1.516262,
+    "userspace_prompt_reached": true,
+    "serial_root_login_verified": true,
+    "memory_available_at_kernel_boot_kib": 4152,
+    "memory_free_after_services_kib": 448,
+    "framebuffer": "/dev/fb0",
+    "touch_event": "/dev/input/event0",
+    "ethernet": {
+      "address": "172.1.1.2/24",
+      "link": "100Mbps/Full",
+      "ping_172.1.1.1": true,
+      "hammer_server_ready_status": 503
     },
-    "clean_log": {
-      "path": "output-qspi/logs/native-linux-qspi-final-artifact-20260813T0340Z.log",
-      "bytes": 16628,
-      "sha256": "9f66fd1d43b7c9e4ed6063ad67e9b29293985b965887c1390bc57cdeb53fd3e2"
+    "ssh": {
+      "dropbear_listener": "0.0.0.0:22",
+      "remote_login_verified": false,
+      "reason": "development host had no usable SSH agent; passwords were not embedded"
+    },
+    "five_boot_soak": {
+      "passes": 5,
+      "failures": 0,
+      "path": "output-qspi/logs/native-linux-qspi-full-boot-soak-20260813.log",
+      "bytes": 54559,
+      "sha256": "309b08955577b110001c8ac585772baf6a66841d88e69b3e55692ce210760cee"
+    },
+    "final_clean_log": {
+      "path": "output-qspi/logs/native-linux-qspi-final-clean-boot-20260813.log",
+      "bytes": 23865,
+      "sha256": "dbf9495979eea37ccedd8a30711917295b53daaa87fafb41f9774628eb4b1198"
     }
+  },
+  "controller_workarounds": {
+    "uboot": "apply STM32 ES0290 2.4.3 AR-clear and abort sequence before memory-mapped reads",
+    "linux_qspi": "use indirect reads, cap operations at 64 bytes, poll completion and flag clear",
+    "linux_stmmac": "synchronize descriptor rings in the cacheable no-MMU coherent pool and restart suspended TX DMA"
   },
   "internal_flash_xip": {
     "path": "output-internal-xip/images/xipImage",
@@ -120,28 +144,29 @@
     "fits": false,
     "flashed": false
   },
-  "sd_requirement": {
-    "required_for_boot": false,
-    "required_for_fair_fat_sqlite_benchmark": true
+  "qspi_xip": {
+    "attempted": false,
+    "reason": "Linux direct QSPI aperture reads still BusFault and the rootfs driver resets/owns the same controller; the working result copies zImage to SDRAM and uses indirect rootfs reads"
   },
   "backups": {
-    "qspi": {
+    "original_lxp_qspi": {
       "path": "output-qspi/hardware-backup/qspi-before-linux-20260813T020133Z.bin",
       "bytes": 16777216,
       "sha256": "dc370faee88fc88cab1bf23ed1ecac90fd2e1c9d9b17bc42b967183b0225a753"
     },
-    "internal_flash": {
+    "original_internal_flash": {
       "path": "output-qspi/hardware-backup/internal-flash-before-linux-20260813T020133Z.bin",
       "bytes": 1048576,
       "sha256": "1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c"
+    },
+    "pre_final_qspi": {
+      "path": "output-qspi/hardware-backup/qspi-before-linux-20260813T121220Z.bin",
+      "bytes": 16777216,
+      "sha256": "9c7760be8e0e22912a91befe18fb562e5c4e79d53c8b970031516ce20db727c9"
     }
-  },
-  "qspi_xip": {
-    "attempted": false,
-    "reason": "unsafe controller handoff: stale first memory-mapped byte remains unresolved for instruction fetch"
   },
   "hammer_benchmark": {
     "attempted": false,
-    "reason": "userspace cannot start and the inserted SD card has no VFAT data partition"
+    "reason": "full boot was the current scope; the inserted SD medium still lacks a confirmed VFAT /data partition for parity"
   }
 }

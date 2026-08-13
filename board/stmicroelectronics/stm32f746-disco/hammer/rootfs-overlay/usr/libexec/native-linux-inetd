@@ -1,0 +1,6 @@
+#!/bin/sh
+
+# Dropbear is intentionally inetd-only on NOMMU: a persistent Dropbear
+# listener requires fork(), while BusyBox inetd uses the platform's supported
+# vfork/exec service path.
+exec /usr/sbin/inetd -f /etc/inetd.conf

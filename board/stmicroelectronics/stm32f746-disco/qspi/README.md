@@ -5,16 +5,26 @@
 The complete 16 MiB `qspi-linux.img` was programmed and verified byte for
 byte.  U-Boot loads the kernel and DTB from QSPI, Linux identifies the
 N25Q128A, and mounts the read-only SquashFS root at `0x90600000`.  Ethernet,
-FT5x06 touch, LTDC/DRM framebuffer, and MMC all probe before init.  This proves
-that the SD card is not required for the native Linux storage boot path.
+FT5x06 touch, and LTDC/DRM framebuffer probe before init.  The system reaches
+the serial login prompt, starts Dropbear through inetd, configures Ethernet as
+`172.1.1.2/24`, and talks to the Pi at `172.1.1.1`.  This proves that the SD
+card is not required for the native Linux boot path.
 
-The compressed-kernel configuration does not reach a userspace prompt.  Even
-after switching SLUB to SLOB, removing kallsyms and unused subsystems, reducing
-the IPv4 source-port table from 256 KiB to 1 KiB, and removing initrd support,
-the 8 MiB NOMMU system has 692 KiB free but no contiguous 512 KiB block.
-FDPIC therefore cannot map uClibc's 405,504-byte executable segment and init
-panics.  The root filesystem is mounted before this failure, so this is a RAM
-layout limit rather than a QSPI-root failure.
+Five consecutive autonomous warm boots loaded aligned kernel/DTB images,
+mounted the QSPI root at 1.516--1.517 seconds, reached login, and negotiated a
+100 Mbps link.  The soak log contains no `Bad magic`, root-mount, panic, or
+BusFault errors.  The final clean-built image was then programmed and verified
+over all 16 MiB and passed another complete warm boot.  See:
+
+```text
+output-qspi/logs/native-linux-qspi-full-boot-soak-20260813.log
+output-qspi/logs/native-linux-qspi-final-clean-boot-20260813.log
+```
+
+The 8 MiB NOMMU target reports 4,152 KiB available at kernel boot and 448 KiB
+free after init, networking, inetd, and Dropbear host-key generation.  MMC is
+an optional module and is not loaded unless `qspi_mmc=1` is added to the kernel
+command line, preserving memory for the no-SD boot.
 
 The requested internal-flash XIP image was also built.  It is 2,869,947 bytes,
 but the board has exactly 1,048,576 bytes of internal flash.  With the upstream
@@ -23,14 +33,22 @@ the image exceeds capacity by 1,854,139 bytes.  It was deliberately not
 flashed.  See `results/20260813-qspi-bringup.json` and the generated
 `output-internal-xip/images/internal-xip-capacity.txt`.
 
-QSPI XIP is the technically viable continuation because it can free kernel
-text/rodata from SDRAM and has enough capacity.  It is not yet safe to boot:
-U-Boot's STM32 QSPI memory-mapped reads produce one stale leading byte in the
-observed handoff, consistent with the class of first-read limitations in
-STM32F74x/F75x erratum ES0290 section 2.4.3.  The zImage path consumes this
-byte with a guard read.  An executing kernel cannot use that copying trick,
-so a controller handoff and direct read-only root mapping must be validated
-before any QSPI-XIP image is programmed.
+Two controller fixes are required for repeatable full boot:
+
+- U-Boot applies the documented STM32F74x/F75x ES0290 section 2.4.3 sequence:
+  clear `QUADSPI_AR`, abort the previous indirect transaction, wait for idle,
+  then enter memory-mapped mode.  This removes the stale leading byte seen on
+  warm reboots and permits aligned kernel/DTB loads.
+- Linux direct reads from the QSPI aperture BusFault on this NOMMU handoff.
+  The board-scoped PoC therefore uses 25 MHz indirect reads, limits them to the
+  64-byte FIFO depth, polls transfer completion, and waits for completion flags
+  to clear before the next command.  It is reliable but slower than a proven
+  direct-map or XIP implementation.
+
+Ethernet also needs a board-scoped no-MMU coherency workaround: stmmac flushes
+descriptor rings in the cacheable coherent pool before DMA ownership changes
+and restarts a suspended transmit engine.  Without it the DMA observed zeroed
+descriptors and TX remained suspended.
 
 ## Decision and phases
 
@@ -56,7 +74,9 @@ The safe implementation is phased:
 6. Attempt QSPI XIP only with a bootloader hand-off which deliberately leaves
    the controller in memory-mapped mode.  The XIP kernel must expose its root
    through a read-only memory map rather than resetting the QSPI controller it
-   is executing from.
+   is executing from.  This is not part of the working full-boot result: the
+   Linux direct aperture is not yet safe and the driver currently owns and
+   resets the same controller used for the root filesystem.
 
 ## QSPI image layout
 
@@ -105,7 +125,9 @@ Despite its name, `flash_sd.sh` does not touch an SD card.
 ## Is an SD card still needed?
 
 It is not needed for boot, serial access, display/touch bring-up, networking,
-SSH, or read-only workload staging.  With no usable SD benchmark partition,
+the SSH listener, or read-only workload staging.  SSH through the Pi was not
+logged in because the development host had no usable SSH agent; no password
+was embedded as a workaround.  With no usable SD benchmark partition,
 `/data` is ramfs solely so first boot and Dropbear work.  This board uses a
 no-MMU kernel, for which tmpfs is unavailable.
 

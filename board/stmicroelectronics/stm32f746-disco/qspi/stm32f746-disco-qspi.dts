@@ -3,6 +3,20 @@
 
 #include "stm32f746-disco-hammer.dts"
 
+/*
+ * DRM fbdev uses two RGB565 scanout buffers from the default coherent pool.
+ * Leave another 64 KiB for the reduced stmmac descriptor rings.
+ */
+&dma_pool {
+	reg = <0xc0770000 0x00090000>;
+};
+
+/* The STM32F7 NVIC wake line cannot be requested as a shared stmmac IRQ. */
+&mac {
+	interrupts = <61>;
+	interrupt-names = "macirq";
+};
+
 / {
 	soc {
 		qspi: spi@a0001000 {
@@ -21,7 +35,15 @@
 			flash@0 {
 				compatible = "jedec,spi-nor";
 				reg = <0>;
-				spi-max-frequency = <108000000>;
+				/*
+				 * The nominal 108 MHz setting selects an effective 100 MHz
+				 * QSPI clock and intermittently BusFaults during Linux
+				 * memory-mapped reads on this board. Use a 50 MHz ceiling for
+				 * a conservative root-filesystem transport. Intermittent
+				 * SquashFS-superblock corruption remained at 50 MHz with
+				 * indirect FIFO reads, so use 25 MHz for boot reliability.
+				 */
+				spi-max-frequency = <25000000>;
 				spi-tx-bus-width = <4>;
 				spi-rx-bus-width = <4>;
 

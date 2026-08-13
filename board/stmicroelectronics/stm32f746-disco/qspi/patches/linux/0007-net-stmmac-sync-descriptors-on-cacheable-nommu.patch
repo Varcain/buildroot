@@ -1,0 +1,155 @@
+From 7d45d477b748e13ba9e1f90a780ae6b8ab6c01bf Mon Sep 17 00:00:00 2001
+From: hIRoic Linux PoC <linux-poc@localhost>
+Date: Thu, 13 Aug 2026 14:40:00 +0200
+Subject: [PATCH] net: stmmac: sync descriptors on cacheable NOMMU systems
+
+The ARM NOMMU ioremap implementation cannot create a non-cacheable alias.
+Consequently a shared-dma-pool mapped with MEMREMAP_WC is still covered by
+the Cortex-M7 cacheable SDRAM region. dma_alloc_coherent() allocations from
+that pool therefore need explicit cache maintenance on this platform.
+
+Without it the DWMAC reads an all-zero TX descriptor after Linux sets OWN,
+reports Transmit Buffer Unavailable, and never raises the MAC interrupt.
+Synchronize descriptor rings at the CPU/device ownership boundaries. These
+operations are no-ops on genuinely coherent systems.
+
+This is a local proof-of-concept workaround. A general solution should make
+the ARM NOMMU coherent allocator provide an MPU-backed non-cacheable region.
+
+Signed-off-by: hIRoic Linux PoC <noreply@localhost>
+---
+ drivers/net/ethernet/stmicro/stmmac/stmmac_main.c | 54 +++++++++++++++++++++++-
+ 1 file changed, 53 insertions(+), 1 deletion(-)
+
+--- a/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
++++ b/drivers/net/ethernet/stmicro/stmmac/stmmac_main.c
+@@ -1383,6 +1383,43 @@
+ 	return ret;
+ }
+ 
++static unsigned int stmmac_rx_desc_size(struct stmmac_priv *priv)
++{
++	return priv->extend_desc ? sizeof(struct dma_extended_desc) :
++				   sizeof(struct dma_desc);
++}
++
++static unsigned int stmmac_tx_desc_size(struct stmmac_priv *priv,
++					struct stmmac_tx_queue *tx_q)
++{
++	if (priv->extend_desc)
++		return sizeof(struct dma_extended_desc);
++	if (tx_q->tbs & STMMAC_TBS_AVAIL)
++		return sizeof(struct dma_edesc);
++	return sizeof(struct dma_desc);
++}
++
++static void stmmac_sync_rx_descriptors_for_device(struct stmmac_priv *priv,
++						  u32 queue)
++{
++	struct stmmac_rx_queue *rx_q = &priv->rx_queue[queue];
++
++	dma_sync_single_for_device(priv->device, rx_q->dma_rx_phy,
++				   priv->dma_rx_size * stmmac_rx_desc_size(priv),
++				   DMA_BIDIRECTIONAL);
++}
++
++static void stmmac_sync_tx_descriptors_for_device(struct stmmac_priv *priv,
++						  u32 queue)
++{
++	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
++
++	dma_sync_single_for_device(priv->device, tx_q->dma_tx_phy,
++				   priv->dma_tx_size *
++				   stmmac_tx_desc_size(priv, tx_q),
++				   DMA_BIDIRECTIONAL);
++}
++
+ /**
+  * stmmac_clear_rx_descriptors - clear RX descriptors
+  * @priv: driver private structure
+@@ -1407,6 +1444,8 @@
+ 					priv->use_riwt, priv->mode,
+ 					(i == priv->dma_rx_size - 1),
+ 					priv->dma_buf_sz);
++
++	stmmac_sync_rx_descriptors_for_device(priv, queue);
+ }
+ 
+ /**
+@@ -1435,6 +1474,8 @@
+ 
+ 		stmmac_init_tx_desc(priv, p, priv->mode, last);
+ 	}
++
++	stmmac_sync_tx_descriptors_for_device(priv, queue);
+ }
+ 
+ /**
+@@ -1730,6 +1771,8 @@
+ 					 priv->dma_rx_size, 0);
+ 	}
+ 
++	stmmac_sync_rx_descriptors_for_device(priv, queue);
++
+ 	return 0;
+ }
+ 
+@@ -2515,6 +2558,7 @@
+ 	struct stmmac_tx_queue *tx_q = &priv->tx_queue[queue];
+ 	unsigned int bytes_compl = 0, pkts_compl = 0;
+ 	unsigned int entry, xmits = 0, count = 0;
++	unsigned int desc_size = stmmac_tx_desc_size(priv, tx_q);
+ 
+ 	__netif_tx_lock_bh(netdev_get_tx_queue(priv->dev, queue));
+ 
+@@ -2524,6 +2568,10 @@
+ 
+ 	entry = tx_q->dirty_tx;
+ 
++	dma_sync_single_for_cpu(priv->device, tx_q->dma_tx_phy,
++				priv->dma_tx_size * desc_size,
++				DMA_BIDIRECTIONAL);
++
+ 	/* Try to clean all TX complete frame in 1 shot */
+ 	while ((entry != tx_q->cur_tx) && count < priv->dma_tx_size) {
+ 		struct xdp_frame *xdpf;
+@@ -3992,6 +4040,8 @@
+ 	 * all is coherent before granting the DMA engine.
+ 	 */
+ 	wmb();
++	stmmac_sync_tx_descriptors_for_device(priv, queue);
++	stmmac_enable_dma_transmission(priv, priv->ioaddr);
+ 
+ 	tx_q->tx_tail_addr = tx_q->dma_tx_phy + (tx_q->cur_tx * desc_size);
+ 	stmmac_set_tx_tail_ptr(priv, priv->ioaddr, tx_q->tx_tail_addr, queue);
+@@ -4590,6 +4639,8 @@
+ 
+ 		entry = STMMAC_GET_ENTRY(entry, priv->dma_rx_size);
+ 	}
++	stmmac_sync_rx_descriptors_for_device(priv, queue);
++	wmb();
+ 	rx_q->dirty_rx = entry;
+ 	rx_q->rx_tail_addr = rx_q->dma_rx_phy +
+ 			    (rx_q->dirty_rx * sizeof(struct dma_desc));
+@@ -5131,7 +5182,7 @@
+ 	int status = 0, coe = priv->hw->rx_csum;
+ 	unsigned int next_entry = rx_q->cur_rx;
+ 	enum dma_data_direction dma_dir;
+-	unsigned int desc_size;
++	unsigned int desc_size = stmmac_rx_desc_size(priv);
+ 	struct sk_buff *skb = NULL;
+ 	struct xdp_buff xdp;
+ 	int xdp_status = 0;
+@@ -5188,6 +5239,10 @@
+ 		else
+ 			p = rx_q->dma_rx + entry;
+ 
++		dma_sync_single_for_cpu(priv->device,
++				rx_q->dma_rx_phy + entry * desc_size,
++				desc_size, DMA_BIDIRECTIONAL);
++
+ 		/* read the status of the incoming frame */
+ 		status = stmmac_rx_status(priv, &priv->dev->stats,
+ 				&priv->xstats, p);
+-- 
+2.51.0

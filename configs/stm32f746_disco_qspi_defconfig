@@ -2,7 +2,7 @@ BR2_arm=y
 BR2_cortex_m7=y
 BR2_BINFMT_FDPIC=y
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_5_15=y
-BR2_GLOBAL_PATCH_DIR="board/stmicroelectronics/stm32f746-disco/patches board/stmicroelectronics/stm32f746-disco/hammer/patches"
+BR2_GLOBAL_PATCH_DIR="board/stmicroelectronics/stm32f746-disco/patches board/stmicroelectronics/stm32f746-disco/hammer/patches board/stmicroelectronics/stm32f746-disco/qspi/patches"
 BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
 BR2_TARGET_GENERIC_ROOT_PASSWD="root"
 # BR2_TARGET_GENERIC_REMOUNT_ROOTFS_RW is not set
@@ -22,9 +22,12 @@ BR2_LINUX_KERNEL_INSTALL_TARGET=y
 BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="board/stmicroelectronics/stm32f746-disco/hammer/busybox.fragment"
 BR2_PACKAGE_SQLITE=y
 BR2_PACKAGE_DROPBEAR=y
+# BR2_PACKAGE_DROPBEAR_CLIENT is not set
 BR2_PACKAGE_DROPBEAR_DISABLE_REVERSEDNS=y
+BR2_PACKAGE_DROPBEAR_LOCALOPTIONS_FILE="board/stmicroelectronics/stm32f746-disco/qspi/dropbear-localoptions.h"
 BR2_PACKAGE_NATIVE_LINUX_HAMMER=y
 BR2_TARGET_ROOTFS_SQUASHFS=y
+BR2_TARGET_ROOTFS_SQUASHFS_BS_4K=y
 BR2_TARGET_ROOTFS_SQUASHFS4_GZIP=y
 # BR2_TARGET_ROOTFS_TAR is not set
 BR2_TARGET_UBOOT=y
