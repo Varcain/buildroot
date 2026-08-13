@@ -75,8 +75,8 @@ grep -q ' /data vfat ' /proc/mounts || {
 	echo 'native-linux-hammer: /data is not mounted as VFAT' >&2
 	exit 4
 }
-grep -q ' / ext2 ro[, ]' /proc/mounts || {
-	echo 'native-linux-hammer: root ext2 filesystem is not read-only' >&2
+grep -Eq ' / (ext2|squashfs) ro[, ]' /proc/mounts || {
+	echo 'native-linux-hammer: root filesystem is not supported read-only ext2/squashfs' >&2
 	exit 4
 }
 
@@ -115,10 +115,6 @@ rm -f "$net_result" "$latency_result" "$lvgl_log" "$lvgl_log_all" "$db_errors" \
 mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
 
-/usr/bin/hammer-sqlite "$database" \
-	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
-	>/dev/null 2>"$db_errors" || exit 4
-
 /usr/bin/hammer-uinput "$uinput_event" "$uinput_control" \
 	>/tmp/native-hammer-uinput.log 2>&1 &
 uinput_pid=$!
@@ -134,6 +130,14 @@ done
 }
 read -r automation_input <"$uinput_event"
 
+# FDPIC must allocate lvmusic's roughly 1 MiB load segment contiguously on
+# this NOMMU target. Reclaim clean QSPI pages and launch it before the SQLite
+# helper can fragment the only order-8 buddy block.
+if grep -q 'root=/dev/mtdblock0' /proc/cmdline &&
+	[ -w /proc/sys/vm/drop_caches ]; then
+	echo 3 >/proc/sys/vm/drop_caches
+fi
+
 LVGL_FBDEV="$framebuffer" LVGL_EVDEV="$automation_input" \
 	LVGL_EVDEV_SECONDARY="$physical_input" \
 	/usr/bin/nice -n -5 /usr/bin/lvmusic >"$lvgl_log_all" 2>&1 &
@@ -148,6 +152,10 @@ sleep 2
 # Remember the active-player boundary without truncating a file that lvmusic
 # still has open. The active-only copy is materialized after the run.
 lvgl_start_line=$(wc -l <"$lvgl_log_all")
+
+/usr/bin/hammer-sqlite "$database" \
+	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
+	>/dev/null 2>"$db_errors" || exit 4
 
 /usr/bin/wget -q -T 2 -O /dev/null http://172.1.1.1:8082/reset || exit 6
 /usr/bin/nice -n 10 /usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
