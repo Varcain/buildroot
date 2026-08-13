@@ -5,22 +5,35 @@ hammer proof of concept.  It deliberately leaves the stock
 `stm32f746_disco_sd_defconfig` unchanged.  The implementation plan and its
 acceptance gates are in `../native-linux-hammer-plan.md`.
 
+The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
+flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
+uses SD for a read-only ext2 root plus FAT `/data`.  A complete QSPI-root boot
+was proven separately, but had only about 448 KiB free after init; adding MMC
+exhausted the 8 MiB SDRAM before lvmusic and SQLite could run.  The internal
+flash XIP kernel also cannot fit.  QSPI XIP therefore recovers kernel text and
+read-only-data RAM while preserving the required FAT-on-SD benchmark medium.
+
 ## Reproduce the images
 
 From the `buildroot2` root:
 
 ```sh
-make O=output stm32f746_disco_hammer_defconfig
-make O=output -j"$(nproc)"
+make O=output-hammer-qspi-xip stm32f746_disco_hammer_qspi_xip_defconfig
+make O=output-hammer-qspi-xip -j"$(nproc)"
 ```
 
 The relevant outputs are:
 
-- `output/images/u-boot.bin`, for STM32 internal flash;
-- `output/images/zImage` and `stm32f746-disco-hammer.dtb`;
-- `output/images/rootfs.ext2`, a 64 MiB root filesystem booted read-only;
-- `output/images/data.vfat`, an empty 256 MiB FAT benchmark filesystem;
-- `output/images/sdcard.img`, containing the ext2 root and FAT `/data`.
+- `output-hammer-qspi-xip/images/u-boot.bin`, for internal flash;
+- `output-hammer-qspi-xip/images/xipImage` and `uImage.xip`;
+- `output-hammer-qspi-xip/images/qspi-hammer-xip.img`, the complete verified
+  16 MiB QSPI layout with the DTB at offset `0x5f0000`;
+- `output-hammer-qspi-xip/images/rootfs.ext2`, a 64 MiB root filesystem
+  booted read-only;
+- `output-hammer-qspi-xip/images/data.vfat`, an empty 256 MiB FAT benchmark
+  filesystem;
+- `output-hammer-qspi-xip/images/sdcard.img`, containing ext2 root and FAT
+  `/data`.
 
 The derived kernel remains `CONFIG_PREEMPT_NONE`.  The SD bus is capped at
 2 MHz to match the proven LXP + oveRTOS hammer runs.  LVGL 9.5.0 uses RGB565,
@@ -47,7 +60,7 @@ sudo umount /dev/EXACT_PARTITION_2
 sudo dd if=/dev/EXACT_DEVICE of=/safe/path/sdcard-before-native-linux.img \
     bs=4M conv=fsync status=progress
 sync
-sudo dd if=output/images/sdcard.img of=/dev/EXACT_DEVICE \
+sudo dd if=output-hammer-qspi-xip/images/sdcard.img of=/dev/EXACT_DEVICE \
     bs=4M conv=fsync status=progress
 sync
 ```
@@ -63,13 +76,24 @@ Unmount only partitions actually reported as mounted.  The generated image is
 Root and `/data` remain on the same physical card.  This is recorded in every
 result because unrelated root I/O could still contend with data I/O.
 
-## Flash U-Boot and capture the boot
+## Flash QSPI XIP, U-Boot, and capture the boot
 
-The board's `flash_sd.sh` name is misleading: it writes only U-Boot to internal
-flash and never writes the SD card or QSPI.
+The XIP programmer first backs up all 16 MiB of the existing QSPI, then erases,
+programs, and verifies the complete new image.  This replaces the QSPI-root or
+LXP personality contents and is separate from the destructive SD-card gate.
 
 ```sh
-./board/stmicroelectronics/stm32f746-disco/flash_sd.sh output
+board/stmicroelectronics/stm32f746-disco/hammer/flash_qspi_xip.sh \
+    output-hammer-qspi-xip
+```
+
+The board's `flash_sd.sh` name is misleading: it writes only U-Boot to internal
+flash and never writes the SD card or QSPI.  Flash the matching XIP-aware
+U-Boot only after QSPI verification succeeds.
+
+```sh
+./board/stmicroelectronics/stm32f746-disco/flash_sd.sh \
+    output-hammer-qspi-xip
 ```
 
 Discover the VCP rather than assuming its number:
@@ -86,7 +110,7 @@ Capture from reset through the login prompt:
 ```sh
 python3 scripts/capture_serial_boot.py \
     --device /dev/EXACT_SERIAL \
-    --output output/hammer-results/native-linux-boot.log
+    --output output-hammer-qspi-xip/hammer-results/native-linux-boot.log
 ```
 
 Interactive settings are 115200 baud, 8N1, and no flow control.  Serial login
@@ -117,19 +141,23 @@ The runner copies `scripts/hammer_stream_server.py` to `/tmp` on the Pi, starts
 it, and checks `/reset`, `/ready`, and `/metrics`.  To validate deployment only:
 
 ```sh
-python3 scripts/hardware_hammer_linux.py --deploy-only
+python3 scripts/hardware_hammer_linux.py \
+    --build-output output-hammer-qspi-xip --deploy-only
 ```
 
 Once a smoke run passes, execute the accepted five-minute result:
 
 ```sh
-python3 scripts/hardware_hammer_linux.py --duration 300
+python3 scripts/hardware_hammer_linux.py \
+    --build-output output-hammer-qspi-xip --duration 300
 ```
 
 A short run is diagnostic and is always labelled non-comparable:
 
 ```sh
-python3 scripts/hardware_hammer_linux.py --duration 30 --allow-smoke
+python3 scripts/hardware_hammer_linux.py \
+    --build-output output-hammer-qspi-xip \
+    --duration 30 --allow-smoke
 ```
 
 Each timestamped result contains the target identity, raw benchmark log,
@@ -147,9 +175,8 @@ interrupt ownership still must be audited before adding a kernel driver.
 
 ## Restoration
 
-Native Linux does not touch QSPI.  To restore the regular FreeRTOS oveRTOS
-firmware in internal flash, first verify the selected existing artifact, close
-serial consumers, and then run:
+To restore the regular FreeRTOS oveRTOS firmware in internal flash, first
+verify the selected existing artifact, close serial consumers, and then run:
 
 ```sh
 cd /home/varcain/projects/private/hIRoic/oveRTOS
@@ -158,8 +185,9 @@ output/stm32f746/freertos/linux_interop/flash
 ```
 
 Equivalent NuttX and Zephyr launchers must be selected and verified explicitly
-when those engines are intended.  Since QSPI was not changed, no QSPI restore
-is needed.  If a separately approved experiment later changes it, restore the
+when those engines are intended.  QSPI XIP replaces the complete QSPI range.
+Restore either the exact `qspi-before-hammer-xip-*.bin` made by the flash
+script (using the same full-bank erase/write/verify sequence), or restore the
 regular LXP rootfs with:
 
 ```sh

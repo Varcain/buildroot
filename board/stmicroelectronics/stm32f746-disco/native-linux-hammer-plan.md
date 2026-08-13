@@ -19,6 +19,30 @@ kernel, device tree, and root filesystem from SD.  Native Linux does not need
 QSPI, so the validated LXP root filesystem in QSPI is out of scope and must be
 preserved.
 
+### Hardware-driven boot-plan revision
+
+The later user-directed QSPI experiment proved a full read-only QSPI-root boot
+but changed the hammer feasibility decision.  With display, touch, Ethernet,
+init, and Dropbear present, only about 448 KiB remained free; loading the MMC
+driver exhausted memory before the benchmark applications could run.  The
+requested internal-flash XIP image is also 2,869,947 bytes versus 1,015,808
+bytes available after the upstream 32 KiB loader reservation.
+
+The revised hammer path is therefore:
+
+1. retain U-Boot in internal flash;
+2. execute kernel text and read-only data in place from QSPI;
+3. keep the QSPI controller memory-mapped across the U-Boot-to-Linux handoff;
+4. boot the read-only ext2 root from SD and mount the second VFAT partition at
+   `/data`;
+5. use a small dynamically linked SQLite command wrapper so the reference
+   shell retains its per-transaction process boundary without mapping the
+   approximately 1.1 MiB statically linked SQLite CLI each time.
+
+This deliberately replaces the current QSPI contents and requires a verified
+full-range backup first.  It does not remove the SD requirement: both the
+Linux userspace and the parity-critical FAT data filesystem reside there.
+
 ## Phases and acceptance gates
 
 ### 1. Freeze and build the native baseline

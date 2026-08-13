@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hIRoic Linux PoC <noreply@localhost>
+Date: Thu, 13 Aug 2026 17:00:00 +0200
+Subject: [PATCH] spi: stm32-qspi: allow an explicit XIP handoff
+
+An XIP kernel needs the QSPI controller to remain in memory-mapped mode
+after U-Boot has loaded its device tree. Permit the board environment to
+request that one-way handoff. The default remains to abort memory-mapped
+reads, preserving the established zImage and flash-update behavior.
+
+The variable is deliberately checked only after a successful mapped read.
+The XIP boot command sets it immediately before its final SPI operation and
+does not persist the environment.
+
+Signed-off-by: hIRoic Linux PoC <noreply@localhost>
+---
+ drivers/spi/stm32_qspi.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/spi/stm32_qspi.c b/drivers/spi/stm32_qspi.c
+--- a/drivers/spi/stm32_qspi.c
++++ b/drivers/spi/stm32_qspi.c
+@@ -11,6 +11,7 @@
+ 
+ #include <clk.h>
+ #include <dm.h>
++#include <env.h>
+ #include <log.h>
+ #include <reset.h>
+ #include <spi.h>
+@@ -353 +354,3 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
+-	if (ret || mode == STM32_QSPI_CCR_MEM_MAP)
++	if (ret ||
++	    (mode == STM32_QSPI_CCR_MEM_MAP &&
++	     env_get_yesno("qspi_leave_mapped") != 1))
+-- 
+2.52.0
