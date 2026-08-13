@@ -1,0 +1,37 @@
+From 4ef2302e24334e4571968e2cd51310819959852f Mon Sep 17 00:00:00 2001
+From: hIRoic native Linux hammer <noreply@example.com>
+Date: Thu, 13 Aug 2026 22:20:00 +0200
+Subject: [PATCH] sqlite: enable bounded-memory operation on NOMMU
+
+The STM32F746 has 8 MiB of RAM and Linux cannot satisfy a large anonymous
+mapping from non-contiguous pages.  SQLite's positive default asks each page
+cache to allocate 20 pages in one block.  With the database's page size and
+per-page metadata this becomes a roughly 68 KiB mapping, which requires an
+order-5 buddy allocation and fails after lvmusic has fragmented memory.
+
+Use SQLite's supported negative form to cap the initial bulk allocation at
+16 KiB.  Also compile the MEMSYS5 allocator so the hammer helper can provide
+SQLite with a fixed heap and avoid later large system allocations in VACUUM.
+PRAGMA cache_size=-16 remains in the workload, so the configured cache budget
+does not change.
+
+Signed-off-by: hIRoic native Linux hammer <noreply@example.com>
+---
+ sqlite3.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/sqlite3.c b/sqlite3.c
+index d613eeb..9427cb2 100644
+--- a/sqlite3.c
++++ b/sqlite3.c
+@@ -15775,5 +15775,9 @@
+ ** speedtest1 test program with options: --shrink-memory --reprepare
+ */
++#ifndef SQLITE_ENABLE_MEMSYS5
++# define SQLITE_ENABLE_MEMSYS5 1
++#endif
++
+ #ifndef SQLITE_DEFAULT_PCACHE_INITSZ
+-# define SQLITE_DEFAULT_PCACHE_INITSZ 20
++# define SQLITE_DEFAULT_PCACHE_INITSZ -16
+ #endif

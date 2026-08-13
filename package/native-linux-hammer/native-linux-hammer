@@ -10,6 +10,8 @@ lvgl_log=/tmp/native-hammer-lvgl.log
 lvgl_log_all=/tmp/native-hammer-lvgl-all.log
 uinput_event=/run/native-hammer-uinput.event
 uinput_control=/run/native-hammer-uinput.control
+sqlite_input=/run/native-hammer-sqlite.in
+sqlite_output=/run/native-hammer-sqlite.out
 db_errors=/tmp/native-hammer-db-errors
 transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;'
 vacuum_sql='PRAGMA temp_store_directory="/data/.native-linux-hammer";VACUUM;'
@@ -18,6 +20,7 @@ lv_pid=
 net_pid=
 latency_pid=
 uinput_pid=
+sqlite_pid=
 
 cleanup()
 {
@@ -26,8 +29,34 @@ cleanup()
 	[ -n "$latency_pid" ] && kill "$latency_pid" 2>/dev/null
 	[ -n "$lv_pid" ] && kill "$lv_pid" 2>/dev/null
 	[ -n "$uinput_pid" ] && kill "$uinput_pid" 2>/dev/null
+	[ -n "$sqlite_pid" ] && kill "$sqlite_pid" 2>/dev/null
+	exec 3>&-
+	exec 4<&-
+	rm -f "$sqlite_input" "$sqlite_output"
 }
 trap cleanup EXIT INT TERM HUP
+
+sqlite_request()
+{
+	sqlite_sql="$1"
+	sqlite_result="$2"
+	: >"$sqlite_result"
+	printf '%s\n' "$sqlite_sql" >&3 || return 1
+	while IFS= read -r sqlite_line <&4; do
+		case "$sqlite_line" in
+			__HAMMER_SQLITE_STATUS__:0)
+				return 0
+				;;
+			__HAMMER_SQLITE_STATUS__:*)
+				return "${sqlite_line##*:}"
+				;;
+			*)
+				printf '%s\n' "$sqlite_line" >>"$sqlite_result"
+				;;
+		esac
+	done
+	return 1
+}
 
 snapshot()
 {
@@ -95,6 +124,11 @@ done
 	exit 3
 }
 
+# SQLite randomblob() reads the kernel RNG.  On fast QSPI boots Dropbear may
+# already have host keys and therefore not wait for CRNG initialization.
+# Keep that boot-time wait outside the measured workload.
+dd if=/dev/random of=/dev/null bs=1 count=1 2>/dev/null || exit 4
+
 physical_input=
 for name_path in /sys/class/input/event*/device/name; do
 	[ -r "$name_path" ] || continue
@@ -111,7 +145,8 @@ done
 
 rm -f "$net_result" "$latency_result" "$lvgl_log" "$lvgl_log_all" "$db_errors" \
 	/tmp/native-hammer-integrity /tmp/native-hammer-meta \
-	/tmp/native-hammer-live /tmp/native-hammer-retry-meta
+	/tmp/native-hammer-live /tmp/native-hammer-retry-meta \
+	"$sqlite_input" "$sqlite_output"
 mkdir -p "$data_directory" || exit 4
 rm -f "$database" "$database-journal" "$database-wal" "$database-shm"
 
@@ -140,7 +175,7 @@ fi
 
 LVGL_FBDEV="$framebuffer" LVGL_EVDEV="$automation_input" \
 	LVGL_EVDEV_SECONDARY="$physical_input" \
-	/usr/bin/nice -n -5 /usr/bin/lvmusic >"$lvgl_log_all" 2>&1 &
+	/bin/nice -n -5 /usr/bin/lvmusic >"$lvgl_log_all" 2>&1 &
 lv_pid=$!
 sleep 15
 kill -0 "$lv_pid" 2>/dev/null || {
@@ -153,12 +188,25 @@ sleep 2
 # still has open. The active-only copy is materialized after the run.
 lvgl_start_line=$(wc -l <"$lvgl_log_all")
 
-/usr/bin/hammer-sqlite "$database" \
-	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
-	>/dev/null 2>"$db_errors" || exit 4
+# Coalesce any clean pages faulted while starting the player before exec needs
+# one order-7 segment for SQLite's bounded 500 KiB MEMSYS5 arena.
+if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline &&
+	[ -w /proc/sys/vm/drop_caches ]; then
+	echo 3 >/proc/sys/vm/drop_caches
+fi
+
+mkfifo "$sqlite_input" "$sqlite_output" || exit 4
+/usr/bin/hammer-sqlite "$database" --batch "$sqlite_input" "$sqlite_output" \
+	2>"$db_errors" &
+sqlite_pid=$!
+exec 3>"$sqlite_input"
+exec 4<"$sqlite_output"
+sqlite_request \
+	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;PRAGMA temp_store=FILE;PRAGMA temp_store_directory="/data/.native-linux-hammer";PRAGMA cache_size=-16;PRAGMA mmap_size=0;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
+	/dev/null || exit 4
 
 /usr/bin/wget -q -T 2 -O /dev/null http://172.1.1.1:8082/reset || exit 6
-/usr/bin/nice -n 10 /usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
+/bin/nice -n 10 /usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
 	"http://172.1.1.1:8082/stream?seconds=$duration" &
 net_pid=$!
 network_ready=0
@@ -185,20 +233,24 @@ snapshot BEFORE
 submitted=0
 transaction_retries=0
 failure=none
-IFS=' ' read -r started_uptime ignored </proc/uptime
-deadline=$((${started_uptime%.*} + duration))
+IFS=' .' read -r started_seconds started_fraction ignored </proc/uptime
+started_uptime="${started_seconds}.${started_fraction}"
+# /proc/uptime has two fractional digits. Prefixing them with 1 avoids the
+# shell treating values such as 08 as octal without requiring non-POSIX 10#.
+started_centiseconds=$((started_seconds * 100 + 1$started_fraction - 100))
+deadline_centiseconds=$((started_centiseconds + duration * 100))
 while :; do
-	IFS=' ' read -r uptime ignored </proc/uptime
-	[ "${uptime%.*}" -ge "$deadline" ] && break
+	IFS=' .' read -r uptime_seconds uptime_fraction ignored </proc/uptime
+	uptime_centiseconds=$((uptime_seconds * 100 + 1$uptime_fraction - 100))
+	[ "$uptime_centiseconds" -ge "$deadline_centiseconds" ] && break
 	transaction_attempt=0
 	while :; do
-		/usr/bin/hammer-sqlite "$database" "$transaction" \
-			>/dev/null 2>>"$db_errors"
+		sqlite_request "$transaction" /dev/null
 		transaction_status=$?
 		[ "$transaction_status" -eq 0 ] && break
 		transaction_retries=$((transaction_retries + 1))
-		/usr/bin/hammer-sqlite "$database" 'SELECT n FROM meta;' \
-			>/tmp/native-hammer-retry-meta 2>>"$db_errors"
+		sqlite_request 'SELECT n FROM meta;' \
+			/tmp/native-hammer-retry-meta
 		read -r retry_meta </tmp/native-hammer-retry-meta
 		expected_before=$((submitted * 8))
 		expected_after=$(((submitted + 1) * 8))
@@ -220,10 +272,7 @@ while :; do
 	[ "$failure" != none ] && break
 	submitted=$((submitted + 1))
 	if [ $((submitted % 20)) -eq 0 ]; then
-		IFS=' ' read -r uptime ignored </proc/uptime
-		[ "${uptime%.*}" -ge "$deadline" ] && break
-		if ! /usr/bin/hammer-sqlite "$database" "$vacuum_sql" \
-			>/dev/null 2>>"$db_errors"; then
+		if ! sqlite_request "$vacuum_sql" /dev/null; then
 			failure=vacuum
 			break
 		fi
@@ -254,15 +303,17 @@ if ! wait "$latency_pid"; then
 fi
 latency_pid=
 
-/usr/bin/hammer-sqlite "$database" 'PRAGMA integrity_check;' \
-	>/tmp/native-hammer-integrity 2>>"$db_errors"
+sqlite_request 'PRAGMA integrity_check;' /tmp/native-hammer-integrity
 read -r integrity </tmp/native-hammer-integrity
-/usr/bin/hammer-sqlite "$database" 'SELECT n FROM meta;' \
-	>/tmp/native-hammer-meta 2>>"$db_errors"
+sqlite_request 'SELECT n FROM meta;' /tmp/native-hammer-meta
 read -r meta </tmp/native-hammer-meta
-/usr/bin/hammer-sqlite "$database" 'SELECT count(*) FROM events;' \
-	>/tmp/native-hammer-live 2>>"$db_errors"
+sqlite_request 'SELECT count(*) FROM events;' /tmp/native-hammer-live
 read -r live_rows </tmp/native-hammer-live
+exec 3>&-
+wait "$sqlite_pid"
+sqlite_pid=
+exec 4<&-
+rm -f "$sqlite_input" "$sqlite_output"
 meta=${meta:-unknown}
 live_rows=${live_rows:-unknown}
 rows=$((submitted * 8))
@@ -272,12 +323,14 @@ error_bytes=$(wc -c <"$db_errors")
 sed -n "$((lvgl_start_line + 1)),\$p" "$lvgl_log_all" >"$lvgl_log"
 active_samples=$(grep -c 'sysmon: [1-9][0-9]* FPS' "$lvgl_log" 2>/dev/null)
 active_samples=${active_samples:-0}
+required_samples=30
+[ "$duration" -lt 30 ] && required_samples=1
 
-[ "$meta" = "$rows" ] || failure=metadata
-[ "$live_rows" = "$expected_live" ] || failure=live-rows
-[ "$integrity" = ok ] || failure=integrity
-[ "$error_bytes" -eq 0 ] || failure=sqlite-errors
-[ "$active_samples" -ge "$duration" ] || failure=lvgl-samples
+[ "$meta" = "$rows" ] || [ "$failure" != none ] || failure=metadata
+[ "$live_rows" = "$expected_live" ] || [ "$failure" != none ] || failure=live-rows
+[ "$integrity" = ok ] || [ "$failure" != none ] || failure=integrity
+[ "$error_bytes" -eq 0 ] || [ "$failure" != none ] || failure=sqlite-errors
+[ "$active_samples" -ge "$required_samples" ] || [ "$failure" != none ] || failure=lvgl-samples
 
 snapshot AFTER
 printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s retries=%s integrity=%s error=%s\n' \
@@ -290,7 +343,7 @@ printf '__HAMMER_NETWORK__:'
 printf '__HAMMER_LATENCY__:'
 [ -s "$latency_result" ] && cat "$latency_result" || echo '{"error":"missing"}'
 printf '__HAMMER_LVGL__:active_samples=%s required=%s\n' \
-	"$active_samples" "$duration"
+	"$active_samples" "$required_samples"
 printf '__HAMMER_DB_ERROR_BYTES__:%s\n' "$error_bytes"
 printf '__LVGL_LOG_BEGIN__\n'
 cat "$lvgl_log"
