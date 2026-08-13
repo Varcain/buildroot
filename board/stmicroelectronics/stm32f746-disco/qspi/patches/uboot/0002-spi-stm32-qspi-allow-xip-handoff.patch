@@ -8,30 +8,64 @@ after U-Boot has loaded its device tree. Permit the board environment to
 request that one-way handoff. The default remains to abort memory-mapped
 reads, preserving the established zImage and flash-update behavior.
 
-The variable is deliberately checked only after a successful mapped read.
-The XIP boot command sets it immediately before its final SPI operation and
-does not persist the environment.
+The XIP boot command sets the variable immediately before its final small
+read at offset zero and does not persist the environment. Program DLR for
+the complete aperture during that operation so the controller does not set
+transfer-complete after the small staging copy. Keep the controller enabled
+when the generic SPI layer releases the bus so subsequent AHB fetches work,
+and change the QSPI MPU region from Device to executable normal memory. Keep
+the MPU enabled while updating that otherwise-unused region: disabling it at
+runtime would make cached SDRAM stack accesses use the default Device mapping.
+Use region 3 because Linux installs its XIP ROM mapping into that same region;
+using Linux's background region 1 would remove execute permission midway
+through the kernel's early MPU setup.
 
 Signed-off-by: hIRoic Linux PoC <noreply@localhost>
 ---
- drivers/spi/stm32_qspi.c | 5 ++++-
- 1 file changed, 4 insertions(+), 1 deletion(-)
+ drivers/spi/stm32_qspi.c | 31 +++++++++++++++++++++++++++++--
+ 1 file changed, 29 insertions(+), 2 deletions(-)
 
 diff --git a/drivers/spi/stm32_qspi.c b/drivers/spi/stm32_qspi.c
 --- a/drivers/spi/stm32_qspi.c
 +++ b/drivers/spi/stm32_qspi.c
-@@ -11,6 +11,7 @@
- 
- #include <clk.h>
- #include <dm.h>
+@@ -13,0 +14 @@
 +#include <env.h>
- #include <log.h>
- #include <reset.h>
- #include <spi.h>
-@@ -353 +354,3 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
+@@ -25,0 +27 @@
++#include <asm/armv7_mpu.h>
+@@ -26,0 +29 @@
++#include <asm/barriers.h>
+@@ -281,0 +283 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
++	bool leave_mapped;
+@@ -296,0 +299,2 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
++	leave_mapped = mode == STM32_QSPI_CCR_MEM_MAP &&
++			env_get_yesno("qspi_leave_mapped") == 1;
+@@ -299 +303,2 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
+-		writel(op->data.nbytes - 1, &priv->regs->dlr);
++		writel(leave_mapped ? priv->mm_size - 1 :
++		       op->data.nbytes - 1, &priv->regs->dlr);
+@@ -353 +359,18 @@ static int stm32_qspi_exec_op(struct spi_slave *slave,
 -	if (ret || mode == STM32_QSPI_CCR_MEM_MAP)
-+	if (ret ||
-+	    (mode == STM32_QSPI_CCR_MEM_MAP &&
-+	     env_get_yesno("qspi_leave_mapped") != 1))
++	if (!ret && leave_mapped) {
++		struct mpu_region_config xip_region = {
++			.start_addr = 0x90000000,
++			.region_no = REGION_3,
++			.xn = XN_DIS,
++			.ap = PRIV_RO_USR_RO,
++			.mr_attr = O_I_NON_CACHEABLE,
++			.reg_size = REGION_256MB,
++		};
++
++		dsb();
++		mpu_config(&xip_region);
++		dsb();
++		isb();
++		return 0;
++	}
++
++	if (ret || mode == STM32_QSPI_CCR_MEM_MAP)
+@@ -481,0 +504,3 @@ static int stm32_qspi_release_bus(struct udevice *dev)
++	if (env_get_yesno("qspi_leave_mapped") == 1)
++		return 0;
++
 -- 
 2.52.0

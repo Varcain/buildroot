@@ -27,7 +27,8 @@ The relevant outputs are:
 - `output-hammer-qspi-xip/images/u-boot.bin`, for internal flash;
 - `output-hammer-qspi-xip/images/xipImage` and `uImage.xip`;
 - `output-hammer-qspi-xip/images/qspi-hammer-xip.img`, the complete verified
-  16 MiB QSPI layout with the DTB at offset `0x5f0000`;
+  16 MiB QSPI layout with the legacy header at offset `0x0fffc0`, the
+  1 MiB-aligned XIP kernel at `0x100000`, and the DTB at `0x5f0000`;
 - `output-hammer-qspi-xip/images/rootfs.ext2`, a 64 MiB root filesystem
   booted read-only;
 - `output-hammer-qspi-xip/images/data.vfat`, an empty 256 MiB FAT benchmark
@@ -40,6 +41,13 @@ The derived kernel remains `CONFIG_PREEMPT_NONE`.  The SD bus is capped at
 480x272, a 33 ms refresh period, a full-height draw buffer, and console
 performance logging.  Native Linux uses software drawing and fbdev `pwrite`;
 it does not use DMA2D.
+
+The STM32F7 MPU is part of the boot contract. U-Boot temporarily maps the
+QSPI aperture as executable Normal, non-cacheable memory in region 3 and
+leaves the controller enabled. Linux immediately replaces region 3 with its
+own read-only XIP ROM mapping. The kernel image is deliberately 1 MiB aligned
+so its approximately 2.7 MiB text/rodata span fits the required power-of-two
+PMSA region without an invalid base/size combination.
 
 ## Destructive SD-card gate
 

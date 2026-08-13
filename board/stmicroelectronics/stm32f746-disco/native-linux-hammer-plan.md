@@ -218,8 +218,9 @@ parity-gap table, and exact restoration steps.
 
 ## Destructive-operation boundary and restoration
 
-No command in the build or host-tooling phases writes the board, SD card, or
-QSPI.  Before SD imaging, show `lsblk -o
+Build commands do not write the board, SD card, or QSPI.  The approved QSPI
+XIP image and matching internal-flash U-Boot have now been programmed only
+after exact backups and readback verification.  Before SD imaging, show `lsblk -o
 NAME,PATH,SIZE,MODEL,TRAN,MOUNTPOINTS`, resolve one exact removable whole-disk
 path, and obtain explicit user confirmation before unmounting or using `dd`.
 
@@ -232,9 +233,11 @@ test -x output/stm32f746/freertos/linux_interop/flash
 output/stm32f746/freertos/linux_interop/flash
 ```
 
-QSPI remains untouched.  If a later, separately approved experiment modifies
-it, restore the regular LXP root filesystem with the verified programmer and
-the image from the original Buildroot worktree as described in the handoff.
+QSPI now contains the Linux XIP experiment. Restore the exact pre-experiment
+16 MiB backup for byte-for-byte recovery, or restore the regular LXP rootfs
+with the verified programmer and image from the original Buildroot worktree
+as described in the handoff. The exact internal-flash backup can similarly be
+used instead of rebuilding a personality when exact recovery is required.
 The SD card has no automatic restoration source: its partition table and any
 existing `/data` files must be backed up before the approved write, and restored
 from that backup afterward.

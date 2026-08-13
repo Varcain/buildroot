@@ -2,11 +2,11 @@
 set -euo pipefail
 
 flash_size=$((0x01000000))
-kernel_offset=$((0x00000000))
-kernel_slot_size=$((0x005f0000))
+kernel_offset=$((0x000fffc0))
 dtb_offset=$((0x005f0000))
+kernel_slot_size=$((dtb_offset - kernel_offset))
 dtb_slot_size=$((0x00010000))
-xip_address=0x90000040
+xip_address=0x90100000
 
 xip_image="${BINARIES_DIR}/xipImage"
 legacy_image="${BINARIES_DIR}/uImage.xip"
@@ -45,7 +45,8 @@ dtb_size=$(stat -c%s "$dtb")
 }
 
 dd if=/dev/zero bs=1M count=16 status=none | tr '\000' '\377' >"$image"
-dd if="$legacy_image" of="$image" bs=64K conv=notrunc status=none
+dd if="$legacy_image" of="$image" bs=64 seek=$((kernel_offset / 64)) \
+	conv=notrunc status=none
 dd if="$dtb" of="$image" bs=64K seek=$((dtb_offset / 65536)) \
 	conv=notrunc status=none
 [ "$(stat -c%s "$image")" -eq "$flash_size" ]
