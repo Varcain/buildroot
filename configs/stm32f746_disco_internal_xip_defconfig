@@ -1,0 +1,17 @@
+BR2_arm=y
+BR2_cortex_m7=y
+BR2_BINFMT_FDPIC=y
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_5_15=y
+BR2_GLOBAL_PATCH_DIR="board/stmicroelectronics/stm32f746-disco/patches board/stmicroelectronics/stm32f746-disco/hammer/patches"
+BR2_DOWNLOAD_FORCE_CHECK_HASHES=y
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="5.15.211"
+BR2_LINUX_KERNEL_DEFCONFIG="stm32"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="board/stmicroelectronics/stm32f746-disco/linux.fragment board/stmicroelectronics/stm32f746-disco/hammer/linux.fragment board/stmicroelectronics/stm32f746-disco/qspi/linux.fragment board/stmicroelectronics/stm32f746-disco/qspi/internal-xip.fragment"
+BR2_LINUX_KERNEL_IMAGE_TARGET_CUSTOM=y
+BR2_LINUX_KERNEL_IMAGE_TARGET_NAME="xipImage"
+BR2_LINUX_KERNEL_DTS_SUPPORT=y
+BR2_LINUX_KERNEL_CUSTOM_DTS_PATH="board/stmicroelectronics/stm32f746-disco/hammer/stm32f746-disco-hammer.dts board/stmicroelectronics/stm32f746-disco/qspi/stm32f746-disco-qspi.dts"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="board/stmicroelectronics/stm32f746-disco/qspi/report-internal-xip.sh"
+# BR2_TARGET_ROOTFS_TAR is not set

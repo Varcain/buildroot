@@ -1,0 +1,6 @@
+# Upstream's STM32 no-MMU XIP convention leaves 32 KiB at the start of
+# internal flash for a first-stage loader.  This build is a capacity proof;
+# it must not be programmed unless the generated report says it fits.
+CONFIG_XIP_KERNEL=y
+CONFIG_XIP_PHYS_ADDR=0x08008000
+CONFIG_XIP_DEFLATED_DATA=y
