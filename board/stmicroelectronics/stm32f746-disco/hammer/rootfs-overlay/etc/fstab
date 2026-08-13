@@ -1,6 +1,7 @@
 proc              /proc     proc    defaults                         0 0
 sysfs             /sys      sysfs   defaults                         0 0
 devpts            /dev/pts  devpts  defaults,gid=5,mode=620          0 0
-tmpfs             /run      tmpfs   nosuid,nodev,mode=0755,size=256k 0 0
-tmpfs             /tmp      tmpfs   nosuid,nodev,mode=1777,size=1m   0 0
-/dev/mmcblk0p2    /data     vfat    rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 0 0
+ramfs             /run      ramfs   nosuid,nodev,mode=0755           0 0
+ramfs             /tmp      ramfs   nosuid,nodev,mode=1777           0 0
+# rcS mounts this explicitly when the optional benchmark partition exists.
+/dev/mmcblk0p2    /data     vfat    noauto,rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 0 0

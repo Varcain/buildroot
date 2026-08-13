@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR BSD-3-Clause)
+/* QSPI-root extension of the native-Linux hammer device tree. */
+
+#include "stm32f746-disco-hammer.dts"
+
+/ {
+	soc {
+		qspi: spi@a0001000 {
+			compatible = "st,stm32f469-qspi";
+			#address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0xa0001000 0x1000>, <0x90000000 0x01000000>;
+			reg-names = "qspi", "qspi_mm";
+			interrupts = <92>;
+			clocks = <&rcc 0 STM32F7_AHB3_CLOCK(QSPI)>;
+			resets = <&rcc STM32F7_AHB3_RESET(QSPI)>;
+			pinctrl-0 = <&qspi_pins>;
+			pinctrl-names = "default";
+			status = "okay";
+
+			flash@0 {
+				compatible = "jedec,spi-nor";
+				reg = <0>;
+				spi-max-frequency = <108000000>;
+				spi-tx-bus-width = <4>;
+				spi-rx-bus-width = <4>;
+
+				partitions {
+					compatible = "fixed-partitions";
+					#address-cells = <1>;
+					#size-cells = <1>;
+
+					rootfs@600000 {
+						label = "rootfs";
+						reg = <0x00600000 0x00a00000>;
+						read-only;
+					};
+				};
+			};
+		};
+	};
+};
+
+&pinctrl {
+	qspi_pins: qspi-0 {
+		pins {
+			pinmux = <STM32_PINMUX('B', 2, AF9)>,  /* CLK */
+				 <STM32_PINMUX('B', 6, AF10)>, /* BK1_NCS */
+				 <STM32_PINMUX('D', 11, AF9)>, /* BK1_IO0 */
+				 <STM32_PINMUX('D', 12, AF9)>, /* BK1_IO1 */
+				 <STM32_PINMUX('D', 13, AF9)>, /* BK1_IO3 */
+				 <STM32_PINMUX('E', 2, AF9)>;  /* BK1_IO2 */
+			slew-rate = <2>;
+		};
+	};
+};

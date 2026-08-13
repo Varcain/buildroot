@@ -1,0 +1,59 @@
+# Keep the QSPI boot experiment on the same non-preemptible baseline policy.
+CONFIG_PREEMPT_NONE=y
+# CONFIG_PREEMPT_VOLUNTARY is not set
+# CONFIG_PREEMPT is not set
+
+CONFIG_MTD=y
+CONFIG_MTD_BLOCK=y
+CONFIG_MTD_SPI_NOR=y
+CONFIG_SPI=y
+CONFIG_SPI_MEM=y
+CONFIG_SPI_STM32_QSPI=y
+
+CONFIG_SQUASHFS=y
+CONFIG_SQUASHFS_ZLIB=y
+
+# The board has only 8 MiB of SDRAM.  The generic STM32 defconfig enables
+# facilities for many unrelated STM32 platforms; those exhaust memory before
+# init can run once DRM, networking, MTD and SquashFS are enabled together.
+# Keep the interfaces required by the hammer and remove unused kernel-resident
+# tables and diagnostic frameworks.  In particular, kallsyms alone accounts
+# for roughly 680 KiB in this build.
+# CONFIG_KALLSYMS is not set
+CONFIG_LOG_BUF_SHIFT=13
+# CONFIG_DEBUG_FS is not set
+# CONFIG_MAGIC_SYSRQ is not set
+# CONFIG_RCU_TRACE is not set
+# CONFIG_IO_URING is not set
+# CONFIG_FHANDLE is not set
+
+# SLOB avoids the large per-cache page cost observed with SLUB on 8 MiB:
+# SLUB consumed about 2.4 MiB before /sbin/init and fragmented the remaining
+# memory below uClibc's 396 KiB contiguous mapping requirement.
+CONFIG_SLOB=y
+# CONFIG_SLAB is not set
+# CONFIG_SLUB is not set
+
+# The hammer uses IPv4 TCP only.
+# CONFIG_IPV6 is not set
+# CONFIG_INET_DIAG is not set
+# CONFIG_WIRELESS is not set
+# The desktop default allocates a 256 KiB source-port perturbation table.
+# A 256-entry table is sufficient for this single-client embedded workload
+# and releases a physically contiguous 255 KiB before the FDPIC init exec.
+CONFIG_INET_TABLE_PERTURB_ORDER=8
+
+# U-Boot supplies neither an initrd nor loadable modules in the QSPI design.
+# CONFIG_BLK_DEV_INITRD is not set
+
+# Peripherals and filesystems not used by the native-Linux PoC.  Keep DRM,
+# STM32 DWMAC, I2C/FT5x06, MMC and VFAT through the hammer fragment.
+# CONFIG_EXT4_FS is not set
+# CONFIG_EXT3_FS is not set
+# CONFIG_MEDIA_SUPPORT is not set
+# CONFIG_HID is not set
+# CONFIG_IIO is not set
+# CONFIG_PPS is not set
+# CONFIG_PTP_1588_CLOCK is not set
+# CONFIG_RTC_CLASS is not set
+# CONFIG_WATCHDOG is not set

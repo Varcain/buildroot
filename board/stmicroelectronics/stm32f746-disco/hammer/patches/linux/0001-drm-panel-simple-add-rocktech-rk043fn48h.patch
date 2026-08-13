@@ -16,7 +16,7 @@ diff --git a/drivers/gpu/drm/panel/panel-simple.c b/drivers/gpu/drm/panel/panel-
 index 2be3588ba2f8..c6e1bb59e7e7 100644
 --- a/drivers/gpu/drm/panel/panel-simple.c
 +++ b/drivers/gpu/drm/panel/panel-simple.c
-@@ -3745,0 +3746,27 @@ static const struct panel_desc qishenglong_gopher2b_lcd = {
+@@ -3742,0 +3743,27 @@ static const struct panel_desc qishenglong_gopher2b_lcd = {
 +static const struct display_timing rocktech_rk043fn48h_timing = {
 +	.pixelclock = { 9000000, 9000000, 9000000 },
 +	.hactive = { 480, 480, 480 },
@@ -44,7 +44,7 @@ index 2be3588ba2f8..c6e1bb59e7e7 100644
 +	.connector_type = DRM_MODE_CONNECTOR_DPI,
 +};
 +
-@@ -4847,0 +4875,3 @@ static const struct of_device_id platform_of_match[] = {
+@@ -4845,0 +4873,3 @@ static const struct of_device_id platform_of_match[] = {
 +	}, {
 +		.compatible = "rocktech,rk043fn48h",
 +		.data = &rocktech_rk043fn48h,

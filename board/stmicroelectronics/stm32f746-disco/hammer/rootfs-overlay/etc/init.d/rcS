@@ -3,8 +3,24 @@
 hostname stm32f746-linux
 ip link set lo up
 
-mkdir -p /sys/kernel/debug /data/.native-linux /run/dropbear
+mkdir -p /sys/kernel/debug /run/dropbear
 mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null || true
+
+# A VFAT SD partition is required for a comparable hammer run, but it is not
+# required merely to boot the QSPI image.  Mount it only when it exists so the
+# synchronous BusyBox init path never waits on an absent partition.  NOMMU
+# kernels cannot provide tmpfs, so use an otherwise-empty ramfs for bring-up.
+# The hammer preflight rejects ramfs and therefore cannot report it as parity.
+if ! grep -q '[[:space:]]/data[[:space:]]' /proc/mounts; then
+	if [ -b /dev/mmcblk0p2 ]; then
+		mount -t vfat -o rw,noatime,nosuid,nodev,noexec,flush,fmask=0177,dmask=0077 \
+			/dev/mmcblk0p2 /data || exit 1
+	else
+		mount -t ramfs -o nosuid,nodev,mode=0700 ramfs /data || exit 1
+		echo "native Linux hammer: /data is volatile ramfs (no benchmark parity)"
+	fi
+fi
+mkdir -p /data/.native-linux
 
 host_key=/data/.native-linux/dropbear_ed25519_host_key
 if [ ! -s "$host_key" ]; then

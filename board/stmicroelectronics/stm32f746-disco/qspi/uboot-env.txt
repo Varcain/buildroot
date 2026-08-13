@@ -1,0 +1,16 @@
+baudrate=115200
+bootdelay=3
+bootargs=console=ttySTM0,115200 earlyprintk consoleblank=0 ignore_loglevel root=/dev/mtdblock0 rootfstype=squashfs ro rootwait
+bootcmd=run qspi_boot
+qspi_boot=sf probe 0:0 && sf read ${kernel_read_addr} 0x000000 0x300001 && sf read ${fdt_read_addr} 0x5f0000 0x10001 && bootz ${kernel_addr_r} - ${fdt_addr_r}
+# The STM32F74x/F75x QSPI produces one stale leading byte on the first AHB
+# memory-mapped read in this U-Boot path.  Reading one byte before each aligned
+# destination consumes it; host/target CRC checks then match exactly.
+kernel_read_addr=0xc0007fff
+kernel_addr_r=0xc0008000
+fdt_read_addr=0xc0407fff
+fdt_addr_r=0xc0408000
+# Keep the relocated DT in the unused 32 KiB below the decompressed kernel.
+# The default top-of-RAM relocation is overwritten by the zImage decompressor
+# on this 8 MiB target.
+fdt_high=0xc0007fff
