@@ -1,0 +1,84 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] fat: honor the FAT32 active FAT flag
+
+The FAT32 BPB ExtFlags field can disable FAT mirroring and select a single
+active allocation table.  Linux 5.15 ignores the field, always reads FAT1,
+and mirrors writes to every FAT.  That prevents mounting media recovered
+with a deliberately inactive damaged FAT.
+
+Parse ExtFlags for FAT32, reject an out-of-range active table, shift FAT
+I/O to the selected table, and set the in-memory FAT count to one so writes
+are not mirrored.  Continue calculating the data-area start from the
+physical FAT count in the BPB.
+
+Upstream-status: Backport [FAT32 BPB ExtFlags semantics]
+---
+ fs/fat/inode.c | 30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/fs/fat/inode.c b/fs/fat/inode.c
+--- a/fs/fat/inode.c
++++ b/fs/fat/inode.c
+@@ -57,6 +57,7 @@ struct fat_bios_param_block {
+ 	u32	fat32_length;
+ 	u32	fat32_root_cluster;
+ 	u16	fat32_info_sector;
++	u16	fat32_flags;
+ 	u8	fat32_state;
+ 	u32	fat32_vol_id;
+ };
+@@ -1475,6 +1476,7 @@ static int fat_read_bpb(struct super_block *sb, struct fat_boot_sector *b,
+ 	bpb->fat32_length = le32_to_cpu(b->fat32.length);
+ 	bpb->fat32_root_cluster = le32_to_cpu(b->fat32.root_cluster);
+ 	bpb->fat32_info_sector = le16_to_cpu(b->fat32.info_sector);
++	bpb->fat32_flags = le16_to_cpu(b->fat32.flags);
+ 	bpb->fat32_state = b->fat32.state;
+ 	bpb->fat32_vol_id = get_unaligned_le32(b->fat32.vol_id);
+ 
+@@ -1717,12 +1719,31 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
+ 	if (!sbi->fat_length && bpb.fat32_length) {
+ 		struct fat_boot_fsinfo *fsinfo;
+ 		struct buffer_head *fsinfo_bh;
++		u16 active_fat;
+ 
+ 		/* Must be FAT32 */
+ 		sbi->fat_bits = 32;
+ 		sbi->fat_length = bpb.fat32_length;
+ 		sbi->root_cluster = bpb.fat32_root_cluster;
+ 
++		/* FAT32 ExtFlags bit 7 disables mirroring; bits 0-3 select
++		 * the active FAT.  Restrict both reads and writes to it.
++		 */
++		if (bpb.fat32_flags & 0x0080) {
++			active_fat = bpb.fat32_flags & 0x000f;
++			if (active_fat >= bpb.fat_fats) {
++				fat_msg(sb, KERN_ERR,
++					"invalid active FAT %u (number of FATs %u)",
++					active_fat + 1, bpb.fat_fats);
++				goto out_invalid;
++			}
++			sbi->fat_start += active_fat * sbi->fat_length;
++			sbi->fats = 1;
++			fat_msg(sb, KERN_INFO,
++				"FAT mirroring disabled; using active FAT %u",
++				active_fat + 1);
++		}
++
+ 		/* MC - if info_sector is 0, don't multiply by 0 */
+ 		sbi->fsinfo_sector = bpb.fat32_info_sector;
+ 		if (sbi->fsinfo_sector == 0)
+@@ -1761,7 +1782,11 @@ int fat_fill_super(struct super_block *sb, void *data, int silent, int isvfat,
+ 	sbi->dir_per_block = sb->s_blocksize / sizeof(struct msdos_dir_entry);
+ 	sbi->dir_per_block_bits = ffs(sbi->dir_per_block) - 1;
+ 
+-	sbi->dir_start = sbi->fat_start + sbi->fats * sbi->fat_length;
++	/* The data area always follows every physical FAT, even when FAT32
++	 * ExtFlags select only one of them for allocation-table I/O.
++	 */
++	sbi->dir_start = bpb.fat_reserved +
++		bpb.fat_fats * sbi->fat_length;
+ 	sbi->dir_entries = bpb.fat_dir_entries;
+ 	if (sbi->dir_entries & (sbi->dir_per_block - 1)) {
+ 		if (!silent)
+-- 
+2.47.3

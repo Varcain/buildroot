@@ -1,0 +1,33 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] ARM: disable FDPIC code generation for the kernel
+
+An ARM FDPIC userspace toolchain enables -mfdpic by default.  The kernel
+is a fixed-address image and must not inherit that userspace ABI: doing so
+emits R_ARM_FUNCDESC relocations and can make a normal kernel link depend
+on FDPIC dynamic-linker sections.  It also triggers a null-section crash
+in the Binutils 2.45.1 ARM backend for this XIP configuration.
+
+Explicitly select the normal kernel code-generation model when the
+compiler supports the option.  This is especially important for XIP,
+where code addresses are fixed by the linker script.
+
+Upstream-status: Pending
+---
+ arch/arm/Makefile | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm/Makefile b/arch/arm/Makefile
+--- a/arch/arm/Makefile
++++ b/arch/arm/Makefile
+@@ -21,6 +21,9 @@ GZFLAGS		:=-9
+ # Never generate .eh_frame
+ KBUILD_CFLAGS	+= $(call cc-option,-fno-dwarf2-cfi-asm)
+ 
++# A userspace FDPIC toolchain must not apply that ABI to the kernel.
++KBUILD_CFLAGS	+= $(call cc-option,-mno-fdpic)
++
+ # This should work on most of the modern platforms
+ KBUILD_DEFCONFIG := multi_v7_defconfig
+ 
+-- 
+2.47.3

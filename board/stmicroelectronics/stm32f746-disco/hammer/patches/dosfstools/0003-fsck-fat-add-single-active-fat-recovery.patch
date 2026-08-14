@@ -1,0 +1,158 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] fsck.fat: add single active FAT recovery mode
+
+Some damaged media cannot accept writes to the second FAT while the first
+FAT remains readable.  FAT32 ExtFlags provide a standard recovery path:
+disable mirroring and select one FAT as active.
+
+Add an explicitly requested low-memory mode which repairs only the FAT
+selected with -F and updates ExtFlags in both boot sectors.  Requiring
+low-memory mode, an explicit FAT selection and immediate writes keeps this
+dangerous recovery operation narrow and avoids accidentally treating the
+inactive FAT as repaired.
+
+Upstream-status: Inappropriate [target-specific damaged-media recovery]
+---
+ src/check.c    |  7 +++++--
+ src/fat.c      | 11 +++++++----
+ src/fsck.fat.c | 34 ++++++++++++++++++++++++++++++++--
+ src/fsck.fat.h |  1 +
+ 4 files changed, 45 insertions(+), 8 deletions(-)
+
+diff --git a/src/fsck.fat.h b/src/fsck.fat.h
+--- a/src/fsck.fat.h
++++ b/src/fsck.fat.h
+@@ -172,6 +172,7 @@ typedef struct {
+     unsigned char *fat;
+     DOS_FILE **cluster_owner;
+     int lowmem;
++    int single_fat;
+     off_t fat_read_start;
+     off_t fat_cache_pos;
+     unsigned char fat_cache[512];
+diff --git a/src/fat.c b/src/fat.c
+--- a/src/fat.c
++++ b/src/fat.c
+@@ -209,7 +209,9 @@ void read_fat(DOS_FS * fs)
+     if (differ) {
+ 	printf("FATs differ; low-memory mode is using FAT %d.\n",
+ 	       selected == fs->fat_start ? 1 : 2);
+-	if (rw && mode == 2) {
++	if (fs->single_fat) {
++	    printf("Single-FAT mode leaves the inactive FAT unchanged.\n");
++	} else if (rw && mode == 2) {
+ 	    off_t other = selected == fs->fat_start ?
+ 		fs->fat_start + fs->fat_size : fs->fat_start;
+ 	    copy_fat(fs, selected, other, eff_size);
+@@ -434,9 +436,10 @@ void set_fat(DOS_FS * fs, uint32_t cluster, int32_t new)
+ 	    die("Low-memory FAT writes support FAT32 only.");
+ 	get_fat(&cur, NULL, cluster, fs);
+ 	raw = htole32((new & 0x0fffffff) | (cur.reserved << 28));
+-	pos = fs->fat_start + (off_t)cluster * 4;
++	pos = (fs->single_fat ? fs->fat_read_start : fs->fat_start) +
++	    (off_t)cluster * 4;
+ 	fs_write(pos, sizeof(raw), &raw);
+-	if (fs->nfats > 1)
++	if (!fs->single_fat && fs->nfats > 1)
+ 	    fs_write(pos + fs->fat_size, sizeof(raw), &raw);
+ 	fs->fat_cache_valid = 0;
+ 	return;
+diff --git a/src/check.c b/src/check.c
+--- a/src/check.c
++++ b/src/check.c
+@@ -1079,8 +1079,11 @@ int check_dirty_bit(DOS_FS * fs)
+ 		}
+ 		if (!(fat32_flags.value & FAT32_FLAG_CLEAN_SHUTDOWN)) {
+ 		    uint32_t new_flags = htole32(fat32_flags.value | FAT32_FLAG_CLEAN_SHUTDOWN | (fat32_flags.reserved << 28));
+-		    fs_write(fs->fat_start + 4, 4, &new_flags);
+-		    if (fs->nfats > 1)
++		    off_t flags_pos = fs->single_fat ?
++			fs->fat_read_start + 4 : fs->fat_start + 4;
++
++		    fs_write(flags_pos, 4, &new_flags);
++		    if (!fs->single_fat && fs->nfats > 1)
+ 			fs_write(fs->fat_start + 4 + fs->fat_size, 4, &new_flags);
+ 		    fs->fat_cache_valid = 0;
+ 		}
+diff --git a/src/fsck.fat.c b/src/fsck.fat.c
+--- a/src/fsck.fat.c
++++ b/src/fsck.fat.c
+@@ -53,5 +53,6 @@ int only_uppercase_label = 0;
+ int boot_only = 0;
+ static int low_memory = 0;
++static int single_fat = 0;
+ unsigned n_files = 0;
+ void *mem_queue = NULL;
+ 
+@@ -92,6 +93,7 @@ static void usage(char *name, int retval)
+     fprintf(stderr, "  -V              perform a verification pass\n");
+     fprintf(stderr, "  --variant=TYPE  handle variant TYPE of the filesystem\n");
+     fprintf(stderr, "  --low-memory    use cached FAT I/O and sparse ownership tracking\n");
++    fprintf(stderr, "  --single-fat    repair only the FAT selected by -F and mark it active\n");
+     fprintf(stderr, "  -w              write changes to disk immediately\n");
+     fprintf(stderr, "  -y              same as -a, for compat with other *fsck\n");
+     fprintf(stderr, "  --help          print this message\n");
+@@ -107,11 +109,12 @@ int main(int argc, char **argv)
+     char *tmp;
+     long codepage;
+ 
+-    enum {OPT_HELP=1000, OPT_VARIANT, OPT_LOW_MEMORY};
++    enum {OPT_HELP=1000, OPT_VARIANT, OPT_LOW_MEMORY, OPT_SINGLE_FAT};
+     const struct option long_options[] = {
+ 	    {"variant", required_argument, NULL, OPT_VARIANT},
+ 	    {"help",    no_argument,       NULL, OPT_HELP},
+ 	    {"low-memory", no_argument,    NULL, OPT_LOW_MEMORY},
++	    {"single-fat", no_argument,    NULL, OPT_SINGLE_FAT},
+ 	    {0,}
+     };
+ 
+@@ -211,6 +214,9 @@ int main(int argc, char **argv)
+ 	case OPT_LOW_MEMORY:
+ 	    low_memory = 1;
+ 	    break;
++	case OPT_SINGLE_FAT:
++	    single_fat = 1;
++	    break;
+ 	case 'w':
+ 	    write_immed = 1;
+ 	    break;
+@@ -235,6 +241,10 @@ int main(int argc, char **argv)
+ 	fprintf(stderr, "--low-memory repair requires -w to avoid queuing a full FAT copy\n");
+ 	exit(2);
+     }
++    if (single_fat && (!low_memory || (fat_table != 1 && fat_table != 2))) {
++	fprintf(stderr, "--single-fat requires --low-memory and -F 1 or -F 2\n");
++	exit(2);
++    }
+     if (optind != argc - 1)
+ 	usage(argv[0], 2);
+ 
+@@ -242,8 +252,26 @@ int main(int argc, char **argv)
+     fs_open(argv[optind], rw);
+ 
+     fs.lowmem = low_memory;
++    fs.single_fat = single_fat;
+ 
+     read_boot(&fs);
++    if (single_fat && rw) {
++	struct boot_sector b;
++	uint16_t flags;
++	off_t flags_offset = offsetof(struct boot_sector, flags);
++
++	if (fs.fat_bits != 32)
++	    die("--single-fat supports FAT32 only.");
++	fs_read(0, sizeof(b), &b);
++	flags = (le16toh(b.flags) & ~0x008f) | 0x0080 | (fat_table - 1);
++	b.flags = htole16(flags);
++	fs_write(flags_offset, sizeof(b.flags), &b.flags);
++	if (fs.backupboot_start)
++	    fs_write(fs.backupboot_start + flags_offset,
++		     sizeof(b.flags), &b.flags);
++	printf("Disabled FAT mirroring and selected FAT %ld as active.\n",
++	       fat_table);
++    }
+     if (boot_only)
+ 	goto exit;
+ 
+-- 
+2.47.3

@@ -1,0 +1,68 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] fsck.fat: use bounded larger chunks when mirroring FATs
+
+The STM32 MMCI path is prohibitively slow when the low-memory repair mode
+mirrors a FAT using individual 512-byte synchronous writes.  Keep memory
+bounded while using 32 KiB heap buffers for FAT comparison and copying.
+
+Upstream-status: Inappropriate [target-specific bounded-memory mode]
+---
+ src/fat.c | 28 ++++++++++++++++++++--------
+ 1 file changed, 20 insertions(+), 8 deletions(-)
+
+diff --git a/src/fat.c b/src/fat.c
+--- a/src/fat.c
++++ b/src/fat.c
+@@ -138,31 +138,43 @@ static int fat_header_ok(DOS_FS *fs, off_t start)
+     return (entry.value & FAT_EXTD(fs)) == FAT_EXTD(fs);
+ }
+ 
++#define LOWMEM_IO_CHUNK (32 * 1024)
++
+ static int fats_differ(DOS_FS *fs, int size)
+ {
+-    unsigned char first[512], second[512];
++    unsigned char *first, *second;
+     int pos, chunk;
++    int differ = 0;
++
++    first = alloc(LOWMEM_IO_CHUNK);
++    second = alloc(LOWMEM_IO_CHUNK);
+ 
+     for (pos = 0; pos < size; pos += chunk) {
+-	chunk = min((int)sizeof(first), size - pos);
++	chunk = min(LOWMEM_IO_CHUNK, size - pos);
+ 	fs_read(fs->fat_start + pos, chunk, first);
+ 	fs_read(fs->fat_start + fs->fat_size + pos, chunk, second);
+-	if (memcmp(first, second, chunk) != 0)
+-	    return 1;
++	if (memcmp(first, second, chunk) != 0) {
++	    differ = 1;
++	    break;
++	}
+     }
+-    return 0;
++    free(second);
++    free(first);
++    return differ;
+ }
+ 
+ static void copy_fat(DOS_FS *fs, off_t from, off_t to, int size)
+ {
+-    unsigned char data[512];
++    unsigned char *data;
+     int pos, chunk;
+ 
++    data = alloc(LOWMEM_IO_CHUNK);
+     for (pos = 0; pos < size; pos += chunk) {
+-	chunk = min((int)sizeof(data), size - pos);
++	chunk = min(LOWMEM_IO_CHUNK, size - pos);
+ 	fs_read(from + pos, chunk, data);
+ 	fs_write(to + pos, chunk, data);
+     }
++    free(data);
+     fs->fat_cache_valid = 0;
+ }
+ 
+-- 
+2.51.0

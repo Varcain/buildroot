@@ -1,0 +1,426 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] fsck.fat: add bounded-memory FAT32 checking mode
+
+The STM32F746 Linux target has less RAM than a full in-memory copy of a
+large FAT32 allocation table.  Add an opt-in mode which reads FAT entries
+through a 512-byte cache and tracks referenced clusters in a fixed-size
+sparse hash table.
+
+The mode deliberately leaves unconnected chains allocated: reclaiming
+those chains requires another array proportional to the total cluster
+count.  It still checks directory chains, cross-links, invalid links,
+labels, boot sectors and dirty bits.  Writes must be immediate so repair
+does not build an unbounded write queue.
+
+Upstream-status: Inappropriate [target-specific bounded-memory mode]
+---
+ src/check.c    |  17 +++---
+ src/fat.c      | 182 +++++++++++++++++++++++++++++++++++++++++++++++++++++++--
+ src/fsck.fat.c |  21 +++++--
+ src/fsck.fat.h |  12 ++++
+ 4 files changed, 213 insertions(+), 19 deletions(-)
+
+diff --git a/src/fsck.fat.h b/src/fsck.fat.h
+--- a/src/fsck.fat.h
++++ b/src/fsck.fat.h
+@@ -171,10 +171,22 @@ typedef struct {
+     off_t backupboot_start;	/* 0 if not present */
+     unsigned char *fat;
+     DOS_FILE **cluster_owner;
++    int lowmem;
++    off_t fat_read_start;
++    off_t fat_cache_pos;
++    unsigned char fat_cache[512];
++    int fat_cache_valid;
++    struct lowmem_owner *owner_table;
++    size_t owner_capacity;
+     uint32_t serial;
+     char label[11];
+ } DOS_FS;
+ 
++typedef struct lowmem_owner {
++    uint32_t cluster;
++    DOS_FILE *owner;
++} LOWMEM_OWNER;
++
+ extern int rw, list, verbose, test, no_spaces_in_sfns;
+ extern long fat_table;
+ extern int only_uppercase_label;
+diff --git a/src/fat.c b/src/fat.c
+--- a/src/fat.c
++++ b/src/fat.c
+@@ -54,6 +54,26 @@ void get_fat(FAT_ENTRY * entry, void *fat, uint32_t cluster, DOS_FS * fs)
+ 		(unsigned long)cluster, (unsigned long)(fs->data_clusters + 1));
+     }
+ 
++    if (fs->lowmem && fat == NULL) {
++	off_t pos, cache_pos;
++	uint32_t e;
++
++	if (fs->fat_bits != 32)
++	    die("Low-memory FAT access supports FAT32 only.");
++	pos = fs->fat_read_start + (off_t)cluster * 4;
++	cache_pos = pos & ~(off_t)(sizeof(fs->fat_cache) - 1);
++	if (!fs->fat_cache_valid || fs->fat_cache_pos != cache_pos) {
++	    fs_read(cache_pos, sizeof(fs->fat_cache), fs->fat_cache);
++	    fs->fat_cache_pos = cache_pos;
++	    fs->fat_cache_valid = 1;
++	}
++	memcpy(&e, fs->fat_cache + pos - cache_pos, sizeof(e));
++	e = le32toh(e);
++	entry->value = e & 0xfffffff;
++	entry->reserved = e >> 28;
++	return;
++    }
++
+     switch (fs->fat_bits) {
+     case 12:
+ 	ptr = &((unsigned char *)fat)[cluster * 3 / 2];
+@@ -83,8 +103,13 @@ void release_fat(DOS_FS * fs)
+ 	free(fs->fat);
+     if (fs->cluster_owner)
+ 	free(fs->cluster_owner);
++    if (fs->owner_table)
++	free(fs->owner_table);
+     fs->fat = NULL;
+     fs->cluster_owner = NULL;
++    fs->owner_table = NULL;
++    fs->owner_capacity = 0;
++    fs->fat_cache_valid = 0;
+ }
+ 
+ static void fix_first_cluster(DOS_FS * fs, void * first_cluster)
+@@ -102,6 +127,104 @@ static void fix_first_cluster(DOS_FS * fs, void * first_cluster)
+         *(uint32_t *)first_cluster = htole32(FAT_EXTD(fs) | b.media);
+ }
+ 
++static int fat_header_ok(DOS_FS *fs, off_t start)
++{
++    uint32_t raw;
++    FAT_ENTRY entry;
++
++    fs_read(start, sizeof(raw), &raw);
++    raw = le32toh(raw);
++    entry.value = raw & 0x0fffffff;
++    return (entry.value & FAT_EXTD(fs)) == FAT_EXTD(fs);
++}
++
++static int fats_differ(DOS_FS *fs, int size)
++{
++    unsigned char first[512], second[512];
++    int pos, chunk;
++
++    for (pos = 0; pos < size; pos += chunk) {
++	chunk = min((int)sizeof(first), size - pos);
++	fs_read(fs->fat_start + pos, chunk, first);
++	fs_read(fs->fat_start + fs->fat_size + pos, chunk, second);
++	if (memcmp(first, second, chunk) != 0)
++	    return 1;
++    }
++    return 0;
++}
++
++static void copy_fat(DOS_FS *fs, off_t from, off_t to, int size)
++{
++    unsigned char data[512];
++    int pos, chunk;
++
++    for (pos = 0; pos < size; pos += chunk) {
++	chunk = min((int)sizeof(data), size - pos);
++	fs_read(from + pos, chunk, data);
++	fs_write(to + pos, chunk, data);
++    }
++    fs->fat_cache_valid = 0;
++}
++
++static void read_fat_lowmem(DOS_FS *fs, int mode, int eff_size)
++{
++    int first_ok, second_ok = 0, differ = 0;
++    uint32_t i, total_num_clusters = fs->data_clusters + 2;
++    off_t selected;
++
++    if (fs->fat_bits != 32)
++	die("--low-memory currently supports FAT32 only.");
++    first_ok = fat_header_ok(fs, fs->fat_start);
++    if (fs->nfats > 1) {
++	second_ok = fat_header_ok(fs, fs->fat_start + fs->fat_size);
++	differ = fats_differ(fs, eff_size);
++    }
++    if (!first_ok && (fs->nfats < 2 || !second_ok))
++	die("No FAT with a valid media header is available.");
++
++    if (fat_table == 2) {
++	if (fs->nfats < 2)
++	    die("Requested FAT table 2 does not exist.");
++	selected = fs->fat_start + fs->fat_size;
++    } else if (!first_ok && second_ok) {
++	selected = fs->fat_start + fs->fat_size;
++    } else {
++	selected = fs->fat_start;
++    }
++    fs->fat_read_start = selected;
++    fs->fat_cache_valid = 0;
++
++    if (differ) {
++	printf("FATs differ; low-memory mode is using FAT %d.\n",
++	       selected == fs->fat_start ? 1 : 2);
++	if (rw && mode == 2) {
++	    off_t other = selected == fs->fat_start ?
++		fs->fat_start + fs->fat_size : fs->fat_start;
++	    copy_fat(fs, selected, other, eff_size);
++	    printf("Mirrored the selected FAT to FAT %d.\n",
++		   selected == fs->fat_start ? 2 : 1);
++	}
++    }
++
++    fs->owner_capacity = 65536;
++    fs->owner_table = alloc(fs->owner_capacity * sizeof(*fs->owner_table));
++    memset(fs->owner_table, 0,
++	   fs->owner_capacity * sizeof(*fs->owner_table));
++
++    if (mode == 0)
++	return;
++    for (i = 2; i < total_num_clusters; i++) {
++	FAT_ENTRY cur;
++	get_fat(&cur, NULL, i, fs);
++	if (cur.value == 1 ||
++	    (cur.value >= total_num_clusters && cur.value < FAT_MIN_BAD(fs))) {
++	    printf("Cluster %lu links out of range (%lu). Setting to EOF.\n",
++		   (unsigned long)i, (unsigned long)cur.value);
++	    set_fat(fs, i, -1);
++	}
++    }
++}
++
+ /**
+  * Build a bookkeeping structure from the partition's FAT table.
+  * If the partition has multiple FATs and they don't agree, try to pick a winner,
+@@ -131,6 +254,11 @@ void read_fat(DOS_FS * fs, int mode)
+     total_num_clusters = fs->data_clusters + 2;
+     eff_size = (total_num_clusters * fs->fat_bits + 7) / 8ULL;
+ 
++    if (fs->lowmem) {
++	read_fat_lowmem(fs, mode, eff_size);
++	return;
++    }
++
+     if (fs->fat_bits != 12)
+ 	    alloc_size = eff_size;
+     else
+@@ -285,6 +413,23 @@ void set_fat(DOS_FS * fs, uint32_t cluster, uint32_t new)
+ 		(unsigned long)new, (unsigned long)(fs->data_clusters + 1));
+     }
+ 
++    if (fs->lowmem) {
++	FAT_ENTRY cur;
++	uint32_t raw;
++	off_t pos;
++
++	if (fs->fat_bits != 32)
++	    die("Low-memory FAT writes support FAT32 only.");
++	get_fat(&cur, NULL, cluster, fs);
++	raw = htole32((new & 0x0fffffff) | (cur.reserved << 28));
++	pos = fs->fat_start + (off_t)cluster * 4;
++	fs_write(pos, sizeof(raw), &raw);
++	if (fs->nfats > 1)
++	    fs_write(pos + fs->fat_size, sizeof(raw), &raw);
++	fs->fat_cache_valid = 0;
++	return;
++    }
++
+     switch (fs->fat_bits) {
+     case 12:
+ 	data = fs->fat + cluster * 3 / 2;
+@@ -382,6 +527,40 @@ void set_owner(DOS_FS * fs, uint32_t cluster, DOS_FILE * owner)
+  */
+ void set_owner(DOS_FS * fs, uint32_t cluster, DOS_FILE * owner)
+ {
++    if (fs->lowmem) {
++	size_t i, slot, tombstone = fs->owner_capacity;
++	LOWMEM_OWNER *entry;
++
++	if (!fs->owner_table)
++	    die("Internal error: low-memory owner table is absent");
++	slot = ((size_t)cluster * 2654435761U) & (fs->owner_capacity - 1);
++	for (i = 0; i < fs->owner_capacity; i++) {
++	    entry = &fs->owner_table[(slot + i) & (fs->owner_capacity - 1)];
++	    if (entry->cluster == cluster) {
++		if (owner && entry->owner && entry->owner != owner)
++		    die("Internal error: attempt to change file owner");
++		if (owner)
++		    entry->owner = owner;
++		else {
++		    entry->cluster = 1;
++		    entry->owner = NULL;
++		}
++		return;
++	    }
++	    if (entry->cluster == 1 && tombstone == fs->owner_capacity)
++		tombstone = (slot + i) & (fs->owner_capacity - 1);
++	    if (entry->cluster == 0) {
++		if (!owner)
++		    return;
++		if (tombstone != fs->owner_capacity)
++		    entry = &fs->owner_table[tombstone];
++		entry->cluster = cluster;
++		entry->owner = owner;
++		return;
++	    }
++	}
++	die("Low-memory owner table is full (more than 65536 referenced clusters).");
++    }
+     if (fs->cluster_owner == NULL)
+ 	die("Internal error: attempt to set owner in non-existent table");
+ 
+@@ -393,6 +572,22 @@ DOS_FILE *get_owner(DOS_FS * fs, uint32_t cluster)
+ 
+ DOS_FILE *get_owner(DOS_FS * fs, uint32_t cluster)
+ {
++    if (fs->lowmem) {
++	size_t i, slot;
++	LOWMEM_OWNER *entry;
++
++	if (!fs->owner_table)
++	    return NULL;
++	slot = ((size_t)cluster * 2654435761U) & (fs->owner_capacity - 1);
++	for (i = 0; i < fs->owner_capacity; i++) {
++	    entry = &fs->owner_table[(slot + i) & (fs->owner_capacity - 1)];
++	    if (entry->cluster == cluster)
++		return entry->owner;
++	    if (entry->cluster == 0)
++		return NULL;
++	}
++	return NULL;
++    }
+     if (fs->cluster_owner == NULL)
+ 	return NULL;
+     else
+@@ -608,7 +803,8 @@ uint32_t update_free(DOS_FS * fs)
+ 	FAT_ENTRY curEntry;
+ 	get_fat(&curEntry, fs->fat, i, fs);
+ 
+-	if (!get_owner(fs, i) && !FAT_IS_BAD(fs, curEntry.value))
++	if (fs->lowmem ? !curEntry.value :
++	    (!get_owner(fs, i) && !FAT_IS_BAD(fs, curEntry.value)))
+ 	    ++free;
+     }
+ 
+diff --git a/src/check.c b/src/check.c
+--- a/src/check.c
++++ b/src/check.c
+@@ -1078,11 +1078,11 @@ void check_dirty_bits(DOS_FS * fs)
+ 		    fs_write(0, sizeof(b32), &b32);
+ 		}
+ 		if (!(fat32_flags.value & FAT32_FLAG_CLEAN_SHUTDOWN)) {
+-		    uint32_t *new_flags_ptr = (uint32_t *)(fs->fat + 4);
+-		    *new_flags_ptr = htole32(fat32_flags.value | FAT32_FLAG_CLEAN_SHUTDOWN | (fat32_flags.reserved << 28));
+-		    fs_write(fs->fat_start + 4, 4, new_flags_ptr);
++		    uint32_t new_flags = htole32(fat32_flags.value | FAT32_FLAG_CLEAN_SHUTDOWN | (fat32_flags.reserved << 28));
++		    fs_write(fs->fat_start + 4, 4, &new_flags);
+ 		    if (fs->nfats > 1)
+-			fs_write(fs->fat_start + 4 + fs->fat_size, 4, new_flags_ptr);
++			fs_write(fs->fat_start + 4 + fs->fat_size, 4, &new_flags);
++		    fs->fat_cache_valid = 0;
+ 		}
+ 	    }
+ 	}
+@@ -1105,11 +1105,10 @@ void check_dirty_bits(DOS_FS * fs)
+ 		    fs_write(0, sizeof(b16), &b16);
+ 		}
+ 		if (fat16_is_dirty) {
+-		    uint16_t *new_flags_ptr = (uint16_t *)(fs->fat + 2);
+-		    *new_flags_ptr = htole16(fat16_flags.value | FAT16_FLAG_CLEAN_SHUTDOWN);
+-		    fs_write(fs->fat_start + 2, 2, new_flags_ptr);
++		    uint16_t new_flags = htole16(fat16_flags.value | FAT16_FLAG_CLEAN_SHUTDOWN);
++		    fs_write(fs->fat_start + 2, 2, &new_flags);
+ 		    if (fs->nfats > 1)
+-			fs_write(fs->fat_start + 2 + fs->fat_size, 2, new_flags_ptr);
++			fs_write(fs->fat_start + 2 + fs->fat_size, 2, &new_flags);
+ 		}
+ 	    }
+ 	}
+diff --git a/src/fsck.fat.c b/src/fsck.fat.c
+--- a/src/fsck.fat.c
++++ b/src/fsck.fat.c
+@@ -52,6 +52,7 @@ int no_spaces_in_sfns = 0;
+ int no_spaces_in_sfns = 0;
+ int only_uppercase_label = 0;
+ int boot_only = 0;
++static int low_memory = 0;
+ unsigned n_files = 0;
+ void *mem_queue = NULL;
+ 
+@@ -90,6 +91,7 @@ static void usage(char *name, int status)
+     fprintf(stderr, "  -v              verbose mode\n");
+     fprintf(stderr, "  -V              perform a verification pass\n");
+     fprintf(stderr, "  --variant=TYPE  handle variant TYPE of the filesystem\n");
++    fprintf(stderr, "  --low-memory    use cached FAT I/O and sparse ownership tracking\n");
+     fprintf(stderr, "  -w              write changes to disk immediately\n");
+     fprintf(stderr, "  -y              same as -a, for compat with other *fsck\n");
+     fprintf(stderr, "  --help          print this message\n");
+@@ -105,10 +107,11 @@ int main(int argc, char **argv)
+     char *tmp;
+     long codepage;
+ 
+-    enum {OPT_HELP=1000, OPT_VARIANT};
++    enum {OPT_HELP=1000, OPT_VARIANT, OPT_LOW_MEMORY};
+     const struct option long_options[] = {
+ 	    {"variant", required_argument, NULL, OPT_VARIANT},
+ 	    {"help",    no_argument,       NULL, OPT_HELP},
++	    {"low-memory", no_argument,    NULL, OPT_LOW_MEMORY},
+ 	    {0,}
+     };
+ 
+@@ -205,6 +208,9 @@ int main(int argc, char **argv)
+ 		    usage(argv[0], 2);
+ 	    }
+ 	    break;
++	case OPT_LOW_MEMORY:
++	    low_memory = 1;
++	    break;
+ 	case 'w':
+ 	    write_immed = 1;
+ 	    break;
+@@ -225,12 +231,18 @@ int main(int argc, char **argv)
+ 	fprintf(stderr, "-t and -w can not be used in read only mode\n");
+ 	exit(2);
+     }
++    if (low_memory && rw && !write_immed) {
++	fprintf(stderr, "--low-memory repair requires -w to avoid queuing a full FAT copy\n");
++	exit(2);
++    }
+     if (optind != argc - 1)
+ 	usage(argv[0], 2);
+ 
+     printf("fsck.fat " VERSION " (" VERSION_DATE ")\n");
+     fs_open(argv[optind], rw);
+ 
++    fs.lowmem = low_memory;
++
+     read_boot(&fs);
+     if (boot_only)
+ 	goto exit;
+@@ -242,7 +254,9 @@ int main(int argc, char **argv)
+     check_label(&fs);
+     if (test)
+ 	fix_bad(&fs);
+-    if (salvage_files)
++    if (low_memory)
++	printf("Low-memory mode leaves unconnected cluster chains allocated.\n");
++    else if (salvage_files)
+ 	reclaim_file(&fs);
+     else
+ 	reclaim_free(&fs);
+@@ -251,7 +265,9 @@ int main(int argc, char **argv)
+     free_clusters = update_free(&fs);
+     file_unused();
+     qfree(&mem_queue);
+-    if (verify) {
++    if (verify && low_memory) {
++	printf("Low-memory mode skips the separate orphan-reclaim verification pass.\n");
++    } else if (verify) {
+ 	n_files = 0;
+ 	printf("Starting verification pass.\n");
+ 	read_fat(&fs, 2);
+-- 
+2.51.0
