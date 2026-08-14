@@ -1,0 +1,107 @@
+{
+  "schema": "native-linux-hammer-iteration-v1",
+  "iteration": 3,
+  "name": "preempt-rt",
+  "status": "FAIL_SMOKE",
+  "duration_s_requested": 30,
+  "change": {
+    "description": "Apply the exact Linux 5.15.211-rt97 patch and enable CONFIG_PREEMPT_RT, retaining the physical TIM3/PB4-to-PG7 scope contract.",
+    "implementation_commits": [
+      "479bf329cd",
+      "bd7d61dc4a",
+      "a81faf4a9a"
+    ],
+    "scheduler_before": "CONFIG_PREEMPT_NONE",
+    "scheduler_after": "CONFIG_PREEMPT_RT",
+    "allocator_before": "SLOB",
+    "allocator_after": "SLUB",
+    "cumulative_from": "01-scope-fast"
+  },
+  "rt_patch": {
+    "kernel": "5.15.211",
+    "release": "5.15.211-rt97",
+    "source": "https://cdn.kernel.org/pub/linux/kernel/projects/rt/5.15/patch-5.15.211-rt97.patch.gz",
+    "compressed_sha256": "8b4ce41c930c158792cfe5094d01372573593587a6885b148a9d92c99ab1c3e2",
+    "uncompressed_sha256": "da029007eaafed7196babc2820dab18017b95fcb88349f79c58d1eef3dc32c67"
+  },
+  "constant_contract": {
+    "board": "STM32F746G-DISCO at 216 MHz",
+    "kernel": "Linux 5.15.211-rt97 ARM NOMMU FDPIC XIP from QSPI",
+    "rootfs": "read-only CramFS in QSPI",
+    "data": "VFAT on the same SD card at approximately 1.95 MHz",
+    "display": "LVGL 9.5.0, software render to /dev/fb0",
+    "latency": "TIM3 CH1 PB4/D3 hardware reference to priority-99 SCHED_FIFO kthread PG7/D4 response",
+    "workload": "lvmusic -5, SQLite 0, HTTP receive 10"
+  },
+  "artifacts": {
+    "uImage_xip": {
+      "path": "output-hammer-iterations/03-preempt-rt/images/uImage.xip",
+      "sha256": "91b68e69d3886f1a3a676b3347b1f971a71a07e534fb9d24606b8bcd37cc85dd"
+    },
+    "xipImage_sha256": "2731e84139d049984a8664a20c41ca00f5e364c60ddbb68ca78ccdbd9d88f1bb",
+    "dtb": {
+      "path": "output-hammer-iterations/03-preempt-rt/images/stm32f746-disco-hammer.dtb",
+      "sha256": "784092cdab99ac93c5319a6b77ef5a7b0edda697533ed3899846556d67f4c1f6",
+      "unchanged_from_iteration_1": true
+    },
+    "rootfs_cramfs_sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58",
+    "uboot_bin_sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
+  },
+  "configuration_sha256": {
+    "buildroot": "07d55dee4d0cbab4ee5e8e5cdc07e27e4bb2790f850ca77970f24719a178d885",
+    "linux": "e66fc59aebd24dfbc23c758b84deac0698143b3a7b60bf5e32512fb9a77d2308"
+  },
+  "boot": {
+    "status": "PASS",
+    "raw_serial_log": "output-hammer-iterations/03-preempt-rt/logs/boot-preempt-rt-v2.log",
+    "identity_log": "output-hammer-iterations/03-preempt-rt/logs/identity-preempt-rt.log",
+    "kernel_identity": "Linux 5.15.211-rt97 #3 PREEMPT_RT",
+    "memory_available_at_kernel_boot_kib": 6708,
+    "warnings": 0,
+    "required_rt_fixes": [
+      "Use raw_spinlock_t for rt_scope state shared with the IRQF_NO_THREAD TIM3 interrupt.",
+      "Run the non-DMA STM32 USART handler as an explicit IRQ thread on PREEMPT_RT."
+    ]
+  },
+  "idle_scope_sample": {
+    "elapsed_s": 128.379389012,
+    "releases": 128372,
+    "executions": 127258,
+    "missed_releases": 1114,
+    "missed_percent": 0.867790481571,
+    "late_finishes": 23,
+    "dispatch_average_ns": 378759,
+    "dispatch_p99_upper_us": 1000,
+    "dispatch_p99_9_upper_us": 1000,
+    "dispatch_max_ns": 999796,
+    "work_average_ns": 6019,
+    "work_max_ns": 248981,
+    "note": "Idle diagnostic only; it is not comparable to a loaded 300-second hammer scope sample."
+  },
+  "smoke_result": {
+    "status": "FAIL",
+    "raw_serial_log": "output-hammer-iterations/03-preempt-rt/logs/hammer-smoke-30s.log",
+    "measurement_started": false,
+    "failures": [
+      {
+        "component": "sqlite-exec",
+        "symptom": "FDPIC NOMMU allocation of 520192 bytes failed at order 7 after PREEMPT_RT required the SLUB allocator.",
+        "followup_commit": "d6e4cdc931"
+      },
+      {
+        "component": "mmci-vfat",
+        "symptom": "The forced-thread MMCI path returned repeated single-sector write I/O errors; the existing bounded polling workaround depended on hard-IRQ timing."
+      }
+    ]
+  },
+  "fat_recovery": {
+    "repair_log": "output-hammer-iterations/03-preempt-rt/logs/fat-inplace-repair.log",
+    "postrepair_audit_log": "output-hammer-iterations/03-preempt-rt/logs/fat-postrepair-audit.log",
+    "write_probe_log": "output-hammer-iterations/03-preempt-rt/logs/fat-postrepair-write-probe.log",
+    "fsck_audit": "PASS",
+    "write_probe": "FAIL",
+    "conclusion": "The on-disk structures were readable after repair, but repeated block write errors make this kernel unsuitable for a full hammer result."
+  },
+  "decision": "Do not report a throughput comparison for this iteration. Preserve PREEMPT_RT and the boot fixes, reduce the SQLite static heap below a NOMMU order-6 allocation, and repair the MMCI write timing in a separately committed iteration before rerunning hammer.",
+  "interpretation": "PREEMPT_RT boots cleanly and the idle missed-release rate is below one percent, but that sample is unloaded. The failed smoke demonstrates that allocator and driver execution-context changes are part of the cost of adopting PREEMPT_RT on this 8 MiB NOMMU target; a valid loaded comparison does not yet exist."
+}
