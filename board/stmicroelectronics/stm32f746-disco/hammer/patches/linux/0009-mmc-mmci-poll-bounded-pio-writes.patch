@@ -1,0 +1,77 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] mmc: mmci: add opt-in polling for bounded PIO writes
+
+The STM32F746 SD-memory PIO transmit path can stop at the beginning or short
+tail of a request with hardware clock flow control enabled. Disabling flow
+control for the complete request lets an idle transfer start, but makes
+interrupt-driven refills vulnerable to TX underrun under concurrent display
+and network load.
+
+Allow affected boards that already bound requests to one sector to poll the
+PIO IRQ service until the complete request has entered the FIFO. This keeps
+the 2 MHz, four-bit card-bus contract and avoids both controller behaviors at
+the explicit cost of holding the CPU during each bounded write.
+
+Upstream-status: Inappropriate [board-specific stability quirk]
+---
+ drivers/mmc/host/mmci.c | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
+--- a/drivers/mmc/host/mmci.c
++++ b/drivers/mmc/host/mmci.c
+@@ -1126,6 +1126,8 @@ static void mmci_post_request(struct mmc_host *mmc, struct mmc_request *mrq,
+ 	mmci_unprep_data(host, data, err);
+ }
+ 
++static irqreturn_t mmci_pio_irq(int irq, void *dev_id);
++
+ static void mmci_start_data(struct mmci_host *host, struct mmc_data *data)
+ {
+ 	struct variant_data *variant = host->variant;
+@@ -1216,9 +1218,43 @@ static void mmci_start_data(struct mmci_host *host, struct mmc_data *data)
+ 		irqmask = MCI_TXFIFOHALFEMPTYMASK;
+ 	}
+ 
++	if (of_property_read_bool(host->mmc->parent->of_node,
++				  "st,poll-write-fifo")) {
++		u32 clk = host->clk_reg;
++
++		if (data->flags & MMC_DATA_WRITE)
++			clk &= ~variant->clkreg_enable;
++		else
++			clk |= variant->clkreg_enable;
++		mmci_write_clkreg(host, clk);
++	}
++
+ 	mmci_write_datactrlreg(host, datactrl);
+ 	writel(readl(base + MMCIMASK0) & ~MCI_DATAENDMASK, base + MMCIMASK0);
+ 	mmci_set_mask1(host, irqmask);
++
++	/*
++	 * With one-sector requests this bounded polling section takes one card
++	 * transfer. It deliberately keeps the normal PIO iterator and DATAEND
++	 * completion path while preventing scheduler/IRQ load from starving TX.
++	 */
++	if (data->flags & MMC_DATA_WRITE &&
++	    of_property_read_bool(host->mmc->parent->of_node,
++				  "st,poll-write-fifo")) {
++		u32 error_mask = variant->start_err | MCI_DATACRCFAIL |
++				 MCI_DATATIMEOUT | MCI_TXUNDERRUN;
++
++		while (host->size) {
++			u32 status = readl(base + MMCISTATUS);
++
++			if (status & error_mask)
++				break;
++			if (status & MCI_TXFIFOHALFEMPTY)
++				mmci_pio_irq(0, host);
++			else
++				cpu_relax();
++		}
++	}
+ }
+ 
+ static void
+-- 
+2.51.0

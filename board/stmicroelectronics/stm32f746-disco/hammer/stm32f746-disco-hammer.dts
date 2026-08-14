@@ -249,6 +249,10 @@
 	pinctrl-0 = <&sdio_pins_a>;
 	pinctrl-1 = <&sdio_pins_od_a>;
 	bus-width = <4>;
+	/* Match the validated one-sector STM32F7 SDMMC stability policy. */
+	st,force-single-block;
+	/* Poll each bounded PIO write so display IRQ load cannot underrun TX. */
+	st,poll-write-fifo;
 };
 
 &usart1 {

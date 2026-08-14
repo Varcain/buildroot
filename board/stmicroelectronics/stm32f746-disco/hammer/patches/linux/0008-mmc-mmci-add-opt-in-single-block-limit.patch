@@ -1,0 +1,35 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] mmc: mmci: add opt-in single-block request limit
+
+The STM32F746 SDMMC external-DMA path leaves data in the MMCI FIFO for
+larger block-layer requests, after which MMCI disables DMA and falls back to
+the non-working PIO transmit path.  Allow the board DT to bound requests to
+one 512-byte sector, matching the established Zephyr hammer configuration
+for this hardware.
+
+Upstream-status: Inappropriate [board-specific stability quirk]
+---
+ drivers/mmc/host/mmci.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
+--- a/drivers/mmc/host/mmci.c
++++ b/drivers/mmc/host/mmci.c
+@@ -2200,6 +2200,15 @@ static int mmci_probe(struct amba_device *dev,
+ 	 */
+ 	mmc->max_blk_count = mmc->max_req_size >> variant->datactrl_blocksz;
+ 
++	if (np && of_property_read_bool(np, "st,force-single-block")) {
++		mmc->max_segs = 1;
++		mmc->max_req_size = 512;
++		mmc->max_seg_size = 512;
++		mmc->max_blk_count = 1;
++		dev_info(&dev->dev,
++			 "limiting transfers to one 512-byte block\n");
++	}
++
+ 	spin_lock_init(&host->lock);
+ 
+ 	writel(0, host->base + MMCIMASK0);
+-- 
+2.51.0
