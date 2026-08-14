@@ -176,6 +176,7 @@ def parse_rt_scope(text):
         },
         "work_ns": {
             "min": raw.get("work_min_ns"),
+            "average": raw.get("work_avg_ns"),
             "max": raw.get("work_max_ns"),
         },
         "dispatch_histogram": histogram,

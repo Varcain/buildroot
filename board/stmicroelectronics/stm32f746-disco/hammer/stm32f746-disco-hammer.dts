@@ -205,6 +205,11 @@
  */
 &timer3 {
 	compatible = "hiroic,stm32f746-rt-scope";
+	reg = <0x40000400 0x400>, <0x40021800 0x400>;
+	reg-names = "timer", "response-gpio";
+	clocks = <&rcc 0 STM32F7_APB1_CLOCK(TIM3)>,
+		 <&rcc 0 STM32F7_AHB1_CLOCK(GPIOG)>;
+	clock-names = "timer", "response-gpio";
 	pinctrl-0 = <&rt_scope_reference_pins>;
 	pinctrl-names = "default";
 	response-gpios = <&gpiog 7 GPIO_ACTIVE_HIGH>; /* Arduino D4 */
