@@ -244,6 +244,10 @@
 	};
 };
 
+&dma2 {
+	status = "okay";
+};
+
 &sdio1 {
 	status = "okay";
 	vmmc-supply = <&vcc_3v3>;
@@ -256,8 +260,10 @@
 	bus-width = <4>;
 	/* Match the validated one-sector STM32F7 SDMMC stability policy. */
 	st,force-single-block;
-	/* Poll each bounded PIO write so display IRQ load cannot underrun TX. */
-	st,poll-write-fifo;
+	/* Match oveRTOS: SDMMC1 RX/TX use DMA2 streams 3/6, channel 4. */
+	dmas = <&dma2 3 4 0x30400 0x3>,
+	       <&dma2 6 4 0x30400 0x3>;
+	dma-names = "rx", "tx";
 };
 
 &usart1 {
