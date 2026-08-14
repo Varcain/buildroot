@@ -153,6 +153,7 @@ def parse_rt_scope(text):
         "reference_high_us": raw.get("reference_high_us"),
         "timer_hz": raw.get("timer_hz"),
         "work_iterations": raw.get("work_iterations"),
+        "measurement_elapsed_ns": raw.get("measurement_elapsed_ns"),
         "scheduler": raw.get("scheduler"),
         "priority": raw.get("priority"),
         "releases": raw.get("releases"),
@@ -288,6 +289,7 @@ def cpu_summary(text):
         total = after_cpu["total"] - before_cpu["total"]
         idle = after_cpu["idle"] - before_cpu["idle"]
         if total > 0:
+            result["total_jiffies"] = total
             result["overall_busy_percent"] = (total - idle) * 100.0 / total
     before_processes = process_values(before_block)
     after_processes = process_values(after_block)
@@ -295,7 +297,7 @@ def cpu_summary(text):
         after = after_processes.get(pid)
         if not after or after["name"] != before["name"]:
             continue
-        result["process_jiffy_delta"][pid] = {
+        delta = {
             "name": before["name"],
             **{
                 key: after[key] - before[key]
@@ -305,7 +307,84 @@ def cpu_summary(text):
                 )
             },
         }
+        self_jiffies = delta["user_jiffies"] + delta["system_jiffies"]
+        children_jiffies = (
+            delta["children_user_jiffies"] +
+            delta["children_system_jiffies"]
+        )
+        delta["self_jiffies"] = self_jiffies
+        delta["children_jiffies"] = children_jiffies
+        if before_cpu and after_cpu and total > 0:
+            delta["self_cpu_percent"] = self_jiffies * 100.0 / total
+            delta["with_children_cpu_percent"] = (
+                (self_jiffies + children_jiffies) * 100.0 / total
+            )
+        result["process_jiffy_delta"][pid] = delta
     return result
+
+
+DISKSTAT_FIELDS = (
+    "reads_completed", "reads_merged", "sectors_read", "read_ms",
+    "writes_completed", "writes_merged", "sectors_written", "write_ms",
+    "io_in_progress", "io_ms", "weighted_io_ms", "discards_completed",
+    "discards_merged", "sectors_discarded", "discard_ms", "flush_completed",
+    "flush_ms",
+)
+
+
+def diskstats_values(block):
+    devices = {}
+    for line in section(block, "diskstats").splitlines():
+        fields = line.split()
+        if len(fields) < 14 or not all(value.isdigit() for value in fields[:2]):
+            continue
+        counters = fields[3:]
+        if not all(value.isdigit() for value in counters):
+            continue
+        devices[fields[2]] = {
+            name: int(value)
+            for name, value in zip(DISKSTAT_FIELDS, counters)
+        }
+    return devices
+
+
+def data_mount(block):
+    for line in section(block, "mounts").splitlines():
+        fields = line.split()
+        if len(fields) >= 4 and fields[1] == "/data":
+            return {
+                "device": fields[0],
+                "mountpoint": fields[1],
+                "filesystem": fields[2],
+                "options": fields[3].split(","),
+            }
+    return None
+
+
+def storage_summary(text):
+    before_block = snapshot_block(text, "BEFORE")
+    after_block = snapshot_block(text, "AFTER")
+    before = diskstats_values(before_block)
+    after = diskstats_values(after_block)
+    devices = {}
+    for name in sorted(before.keys() & after.keys()):
+        delta = {
+            field: after[name].get(field, 0) - before[name].get(field, 0)
+            for field in DISKSTAT_FIELDS
+            if field in before[name] and field in after[name]
+        }
+        delta["bytes_read"] = delta.get("sectors_read", 0) * 512
+        delta["bytes_written"] = delta.get("sectors_written", 0) * 512
+        devices[name] = {
+            "before": before[name],
+            "after": after[name],
+            "delta": delta,
+        }
+    return {
+        "data_mount_before": data_mount(before_block),
+        "data_mount_after": data_mount(after_block),
+        "devices": devices,
+    }
 
 
 def sha256(path):
@@ -334,33 +413,53 @@ def scheduler_from_kernel_config(config):
     return "unknown"
 
 
-def record_build_metadata(output, build_output, build_dir=None):
+def record_build_metadata(output, build_output, build_dir=None,
+                          configuration_paths=None, artifact_paths=None):
     build_dir = build_dir or build_output / "build"
     linux_config = matching_build_file(build_dir, "linux-[0-9]*", ".config")
-    files = {
-        "buildroot.config": build_output / ".config",
-        "linux.config": linux_config,
-        "uboot.config": matching_build_file(build_dir, "uboot-*", ".config"),
-        "busybox.config": matching_build_file(build_dir, "busybox-*", ".config"),
-        "lvgl.config": matching_build_file(
-            build_dir, "native-linux-hammer-*", "lv_conf.h"
-        ),
-    }
+    if configuration_paths:
+        files = dict(configuration_paths)
+        linux_config = files.get("linux.config", linux_config)
+    else:
+        files = {
+            "buildroot.config": build_output / ".config",
+            "linux.config": linux_config,
+            "uboot.config": matching_build_file(
+                build_dir, "uboot-*", ".config"
+            ),
+            "busybox.config": matching_build_file(
+                build_dir, "busybox-*", ".config"
+            ),
+            "lvgl.config": matching_build_file(
+                build_dir, "native-linux-hammer-*", "lv_conf.h"
+            ),
+        }
     copied = {}
     for name, source in files.items():
         if source is not None and source.is_file():
             destination = output / name
             shutil.copy2(source, destination)
             copied[name] = sha256(destination)
-    images = {}
-    for name in (
-        "rootfs.cramfs", "zImage", "xipImage", "uImage.xip",
-        "qspi-hammer-xip.img", "qspi-hammer-xip.manifest",
-        "stm32f746-disco-hammer.dtb", "u-boot.bin",
-    ):
-        path = build_output / "images" / name
-        if path.is_file():
-            images[name] = {"bytes": path.stat().st_size, "sha256": sha256(path)}
+    if artifact_paths:
+        image_files = dict(artifact_paths)
+    else:
+        image_files = {
+            name: build_output / "images" / name
+            for name in (
+                "rootfs.cramfs", "zImage", "xipImage", "uImage.xip",
+                "qspi-hammer-xip.img", "qspi-hammer-xip.manifest",
+                "stm32f746-disco-hammer.dtb", "u-boot.bin",
+            )
+        }
+    images = {
+        name: {
+            "path": str(path),
+            "bytes": path.stat().st_size,
+            "sha256": sha256(path),
+        }
+        for name, path in image_files.items()
+        if path.is_file()
+    }
     commit = run(["git", "rev-parse", "HEAD"], timeout=10).stdout.strip()
     status = run(["git", "status", "--short"], timeout=10).stdout
     return {
@@ -378,6 +477,21 @@ def record_build_metadata(output, build_output, build_dir=None):
         "images": images,
         "build_output": str(build_output),
     }
+
+
+def named_paths(values, option):
+    paths = []
+    for value in values:
+        if "=" not in value:
+            raise ValueError(f"{option} requires LABEL=PATH: {value}")
+        label, raw_path = value.split("=", 1)
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", label):
+            raise ValueError(f"invalid {option} label: {label}")
+        path = Path(raw_path)
+        if not path.is_file():
+            raise ValueError(f"{option} path is not a file: {path}")
+        paths.append((label, path))
+    return paths
 
 
 def archive_build_only(output, build_output, build_dir, blockers):
@@ -505,13 +619,18 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
             failures.append(
                 f"physical scope releases={releases} shorter than {planned}"
             )
-        try:
-            scope_elapsed = (
-                timing["scope_captured_uptime"] - timing["started_uptime"]
-            )
-        except (KeyError, TypeError):
-            scope_elapsed = None
-            failures.append("physical scope capture time missing")
+        measurement_elapsed_ns = latency.get("measurement_elapsed_ns")
+        if isinstance(measurement_elapsed_ns, int) and \
+                measurement_elapsed_ns > 0:
+            scope_elapsed = measurement_elapsed_ns / 1_000_000_000
+        else:
+            try:
+                scope_elapsed = (
+                    timing["scope_captured_uptime"] - timing["started_uptime"]
+                )
+            except (KeyError, TypeError):
+                scope_elapsed = None
+                failures.append("physical scope capture time missing")
         if scope_elapsed is not None:
             latency["elapsed_s"] = scope_elapsed
         if isinstance(releases, int) and scope_elapsed is not None:
@@ -553,6 +672,7 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
         "network_mbps": network_mbps,
         "lvgl": lvgl,
         "cpu": cpu_summary(text),
+        "storage": storage_summary(text),
         "latency": latency,
         "measurement_limitations": [
             "Linux uses a SCHED_FIFO kernel thread while oveRTOS uses its portable "
@@ -603,11 +723,30 @@ def main():
         "--runtime-path", default="/usr/bin/native-linux-hammer",
         help="target path used for an offline serial run",
     )
+    parser.add_argument(
+        "--configuration", action="append", default=[], metavar="LABEL=PATH",
+        help=(
+            "record this exact configuration; when present, replaces automatic "
+            "configuration discovery"
+        ),
+    )
+    parser.add_argument(
+        "--artifact", action="append", default=[], metavar="LABEL=PATH",
+        help=(
+            "hash this exact deployed artifact; when present, replaces automatic "
+            "image discovery"
+        ),
+    )
     args = parser.parse_args()
     if args.duration < 1 or args.duration > 3600:
         parser.error("--duration must be between 1 and 3600")
     if args.duration != 300 and not args.allow_smoke:
         parser.error("non-300-second runs require --allow-smoke and are not comparable")
+    try:
+        configurations = named_paths(args.configuration, "--configuration")
+        artifacts = named_paths(args.artifact, "--artifact")
+    except ValueError as error:
+        parser.error(str(error))
 
     if args.archive_build_only:
         output = (
@@ -654,7 +793,8 @@ def main():
             ),
         }
         summary["build"] = record_build_metadata(
-            output, args.build_output, args.build_dir
+            output, args.build_output, args.build_dir,
+            configurations, artifacts,
         )
         (output / "result.json").write_text(
             json.dumps(summary, indent=2) + "\n"
@@ -710,7 +850,8 @@ def main():
     summary["target_identity_log"] = "identity.log"
     summary["benchmark_log"] = "benchmark.log"
     summary["build"] = record_build_metadata(
-        output, args.build_output, args.build_dir
+        output, args.build_output, args.build_dir,
+        configurations, artifacts,
     )
     (output / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(

@@ -314,13 +314,12 @@ done
 IFS=' ' read -r ended_uptime ignored </proc/uptime
 scope_captured_uptime="$ended_uptime"
 if [ "$latency_mode" = tim3-hardware-to-sched-fifo-kthread ]; then
-	# Capture first, then timestamp it. This keeps any scheduling delay while
-	# opening/reading procfs out of the SQLite duration while still pairing the
-	# physical release count with the instant at which it was observed.
+	# The driver exports its own atomic measurement_elapsed_ns. Keep this
+	# userspace timestamp only as a backward-compatible observer record.
+	IFS=' ' read -r scope_captured_uptime ignored </proc/uptime
 	dump_file /proc/rt_scope >"$rt_scope_result" || {
 		[ "$failure" = none ] && failure=latency
 	}
-	IFS=' ' read -r scope_captured_uptime ignored </proc/uptime
 fi
 snapshot AFTER
 
