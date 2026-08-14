@@ -1,0 +1,6 @@
+::sysinit:/bin/mkdir -p /dev/pts
+::sysinit:/bin/mount -a
+::sysinit:/etc/init.d/rcS
+ttySTM0::respawn:/sbin/getty -L ttySTM0 115200 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/bin/umount -a -r

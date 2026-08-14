@@ -1,0 +1,27 @@
+#!/bin/sh
+
+hostname stm32f746-maintenance
+
+if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline && \
+	[ -w /proc/sys/vm/min_free_kbytes ]; then
+	echo 64 >/proc/sys/vm/min_free_kbytes
+fi
+
+# The regular XIP profile may build the STM32 MMCI host as a module.  Load it
+# after PID 1 has started so FDPIC mappings do not fragment the small SDRAM
+# arena.  Do not mount the FAT volume: fsck.fat must operate on it unmounted.
+for mmci_module in /lib/modules/*/kernel/drivers/mmc/host/armmmci.ko; do
+	if [ -f "$mmci_module" ]; then
+		insmod "$mmci_module" || \
+			echo "maintenance: MMCI module load failed"
+	fi
+done
+
+mmc_wait=0
+while [ ! -b /dev/mmcblk0 ] && [ "$mmc_wait" -lt 50 ]; do
+	usleep 100000
+	mmc_wait=$((mmc_wait + 1))
+done
+
+echo "maintenance: FAT volume left unmounted; use fsck.fat on the verified partition"
+echo "maintenance: console login root/root"
