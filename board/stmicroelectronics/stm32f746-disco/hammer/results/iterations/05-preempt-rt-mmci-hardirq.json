@@ -1,0 +1,63 @@
+{
+  "schema": "native-linux-hammer-iteration-v1",
+  "iteration": 5,
+  "name": "preempt-rt-mmci-hardirq",
+  "status": "FAIL_STORAGE_STALL",
+  "change": {
+    "description": "For the board-opt-in bounded PIO path, keep MMCI unthreaded under PREEMPT_RT and use a dedicated raw spin lock while leaving all other MMCI instances on normal RT semantics.",
+    "implementation_commit": "77f5f8f8ac",
+    "cumulative_from": "04-preempt-rt-mmci-threaded"
+  },
+  "constant_contract": {
+    "board": "STM32F746G-DISCO at 216 MHz",
+    "kernel": "Linux 5.15.211-rt97 ARM NOMMU FDPIC XIP from QSPI",
+    "rootfs": "read-only CramFS in QSPI",
+    "data": "VFAT on the same SD card at approximately 1.95 MHz",
+    "latency": "TIM3 CH1 PB4/D3 hardware reference to priority-99 SCHED_FIFO kthread PG7/D4 response"
+  },
+  "artifacts": {
+    "uImage_xip": {
+      "path": "output-hammer-iterations/05-preempt-rt-mmci-hardirq/images/uImage.xip",
+      "sha256": "6594e8a50f07b910893687e8a9b22f3b83fc0e8be53ddf709ff9ae579d50e7ea"
+    },
+    "xipImage_sha256": "203424918605395be0c0ae3e4fb2224b16621b550c2d0becfce55de52b895e95",
+    "dtb_sha256": "784092cdab99ac93c5319a6b77ef5a7b0edda697533ed3899846556d67f4c1f6"
+  },
+  "configuration_sha256": {
+    "buildroot": "07d55dee4d0cbab4ee5e8e5cdc07e27e4bb2790f850ca77970f24719a178d885",
+    "linux": "e66fc59aebd24dfbc23c758b84deac0698143b3a7b60bf5e32512fb9a77d2308"
+  },
+  "deployment": {
+    "programmed_range": "QSPI 0x900fffc0 length 3045292",
+    "bytes_written": 2484140,
+    "bytes_skipped_identical": 561152,
+    "dtb_programmed": false,
+    "rootfs_programmed": false,
+    "verification": "U-Boot verified the staged CRC and the programmed QSPI image CRC during the subsequent clean boot."
+  },
+  "boot": {
+    "status": "PASS",
+    "raw_serial_log": "output-hammer-iterations/05-preempt-rt-mmci-hardirq/logs/boot.log",
+    "kernel_identity": "Linux 5.15.211-rt97 #5 PREEMPT_RT",
+    "driver_mode": "using hard IRQ and raw lock for bounded PIO writes",
+    "warnings": 0
+  },
+  "fat_repair": {
+    "status": "STALL",
+    "path": "output-hammer-iterations/05-preempt-rt-mmci-hardirq/logs/fat-repair.log",
+    "observation": "fsck.fat printed its version and then made no progress or serial output for more than four minutes while checking the first read.",
+    "debug_snapshot": "output-hammer-iterations/05-preempt-rt-mmci-hardirq/logs/mmci-stall-registers.log",
+    "cpu_state": "Handler External Interrupt 49",
+    "pc": "0x90103926 (cpu_cm7_do_idle + 2)",
+    "mmci_status": "0x00000400",
+    "mmci_data_length": 512,
+    "mmci_data_count": 0,
+    "mmci_mask0": "0x000001ff"
+  },
+  "hammer": {
+    "status": "NOT_RUN",
+    "reason": "The first fsck read stalled, so neither FAT durability nor a full workload could be validated."
+  },
+  "decision": "Do not use the hard-IRQ compatibility mode. The next storage experiment should use STM32 DMA2 streams 3/6, as the LXP/oveRTOS implementation does, and remove st,poll-write-fifo so MMCI retains normal PREEMPT_RT IRQ threading.",
+  "interpretation": "Restoring hard-IRQ and raw-lock semantics removes the earlier write-error behavior but introduces a request-completion stall. It is therefore neither correct nor an acceptable latency tradeoff."
+}
