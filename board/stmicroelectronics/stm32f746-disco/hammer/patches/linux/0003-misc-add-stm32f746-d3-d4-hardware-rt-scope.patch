@@ -17,8 +17,8 @@ Signed-off-by: hIRoic native Linux PoC <noreply@local>
 ---
  drivers/misc/Kconfig          |  16 ++
  drivers/misc/Makefile         |   1 +
- drivers/misc/hiroic_rt_scope.c | 554 ++++++++++++++++++++++++++++++++++
- 3 files changed, 571 insertions(+)
+ drivers/misc/hiroic_rt_scope.c | 563 ++++++++++++++++++++++++++++++++++
+ 3 files changed, 580 insertions(+)
 
 diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
 index 0f5a49fc7c9e..44591a731bd9 100644
@@ -60,7 +60,7 @@ new file mode 100644
 index 000000000000..111111111111
 --- /dev/null
 +++ b/drivers/misc/hiroic_rt_scope.c
-@@ -0,0 +1,554 @@
+@@ -0,0 +1,563 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * STM32F746G-DISCO two-channel real-time scope reference.
