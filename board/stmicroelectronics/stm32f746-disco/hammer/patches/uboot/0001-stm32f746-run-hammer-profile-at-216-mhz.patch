@@ -1,0 +1,86 @@
+From 8218b459d9da06524cb8b8464758e2d0d743cbbc Mon Sep 17 00:00:00 2001
+From: hIRoic Linux hammer PoC <noreply@hiroic.local>
+Date: Fri, 14 Aug 2026 03:14:00 +0200
+Subject: [PATCH] stm32f746: run hammer profile at 216 MHz
+
+Match the validated oveRTOS STM32F746G-DISCO clock contract: a 25 MHz HSE,
+216 MHz SYSCLK, 108 MHz APB timer input clocks and a 48 MHz PLLQ output.
+The latter keeps SDMMC timing unchanged while TIM3 can use the same 54 MHz
+phase counter as the oveRTOS scope implementation.
+
+Seven flash wait states match the STM32Cube 216 MHz board setup.  The FMC
+therefore runs at 108 MHz; use the one-cycle SDRAM read-data pipe delay that
+is already required and validated by the oveRTOS firmware under LTDC load,
+and adjust the refresh count for the faster FMC clock.
+
+This patch lives in the hammer-only patch directory so the upstream board
+configuration remains unchanged for non-benchmark builds.
+
+Signed-off-by: hIRoic Linux hammer PoC <noreply@hiroic.local>
+---
+ arch/arm/dts/stm32f746-disco-u-boot.dtsi | 4 ++--
+ drivers/clk/stm32/clk-stm32f.c           | 8 ++++----
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/arch/arm/dts/stm32f746-disco-u-boot.dtsi b/arch/arm/dts/stm32f746-disco-u-boot.dtsi
+index d6ecf26a6b..db504fe726 100644
+--- a/arch/arm/dts/stm32f746-disco-u-boot.dtsi
++++ b/arch/arm/dts/stm32f746-disco-u-boot.dtsi
+@@ -35,7 +35,7 @@
+ 					     CAS_3
+ 					     SDCLK_2
+ 					     RD_BURST_EN
+-					     RD_PIPE_DL_0>;
++					     RD_PIPE_DL_1>;
+ 		st,sdram-timing = /bits/ 8 <TMRD_2
+ 					    TXSR_6
+ 					    TRAS_4
+@@ -45,7 +45,7 @@
+ 					    TRP_2
+ 					    TRCD_2>;
+ 		/* refcount = (64msec/total_row_sdram)*freq - 20 */
+-		st,sdram-refcount = < 1542 >;
++		st,sdram-refcount = < 1667 >;
+ 	};
+ };
+ 
+diff --git a/drivers/clk/stm32/clk-stm32f.c b/drivers/clk/stm32/clk-stm32f.c
+index e1db1767b9..9c9f2a899a 100644
+--- a/drivers/clk/stm32/clk-stm32f.c
++++ b/drivers/clk/stm32/clk-stm32f.c
+@@ -119,11 +119,11 @@ static const struct stm32_clk_info stm32f4_clk_info = {
+ };
+ 
+ static const struct stm32_clk_info stm32f7_clk_info = {
+-	/* 200 MHz */
++	/* 216 MHz; PLLQ remains exactly 48 MHz for SDMMC and USB. */
+ 	.sys_pll_psc = {
+-		.pll_n = 400,
++		.pll_n = 432,
+ 		.pll_p = 2,
+-		.pll_q = 8,
++		.pll_q = 9,
+ 		.ahb_psc = AHB_PSC_1,
+ 		.apb1_psc = APB_PSC_4,
+ 		.apb2_psc = APB_PSC_2,
+@@ -231,7 +231,7 @@ static int configure_clocks(struct udevice *dev)
+ 	if (priv->info.has_overdrive) {
+ 		/*
+ 		 * Enable high performance mode
+-		 * System frequency up to 200 MHz
++		 * System frequency up to 216 MHz
+ 		 */
+ 		setbits_le32(&pwr->cr1, PWR_CR1_ODEN);
+ 		/* Infinite wait! */
+@@ -247,7 +247,7 @@ static int configure_clocks(struct udevice *dev)
+ 			;
+ 	}
+ 
+-	stm32_flash_latency_cfg(5);
++	stm32_flash_latency_cfg(7);
+ 	clrbits_le32(&regs->cfgr, (RCC_CFGR_SW0 | RCC_CFGR_SW1));
+ 	setbits_le32(&regs->cfgr, RCC_CFGR_SW_PLL);
+ 
+-- 
+2.51.0
+

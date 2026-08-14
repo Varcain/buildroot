@@ -1,0 +1,40 @@
+From 2a9c07872828db7534249382c1c5e469d7fd1c12 Mon Sep 17 00:00:00 2001
+From: hIRoic Linux hammer PoC <noreply@hiroic.local>
+Date: Fri, 14 Aug 2026 01:42:00 +0200
+Subject: [PATCH] ARM: XIP: disable stack protector for the data inflater
+
+The XIP data inflater executes before the kernel's initialized data has
+been copied into RAM.  With stack protection enabled, its prologue reads
+__stack_chk_guard from the old RAM contents.  Inflating .data then
+overwrites that guard, so the epilogue can report a false stack corruption
+and panic before start_kernel().
+
+This is especially visible across warm resets: a completed boot randomizes
+the guard and the following boot panics, while the panic's successful data
+inflation leaves a zero guard that lets the next boot complete.
+
+Compile only this early inflater without stack protection, as is already
+done for other ARM decompressor code that runs before the normal kernel
+environment exists.
+
+Signed-off-by: hIRoic Linux hammer PoC <noreply@hiroic.local>
+---
+ arch/arm/kernel/Makefile | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm/kernel/Makefile b/arch/arm/kernel/Makefile
+index 4a8edfd56..be249e75f 100644
+--- a/arch/arm/kernel/Makefile
++++ b/arch/arm/kernel/Makefile
+@@ -95,7 +95,8 @@ obj-$(CONFIG_ARM_PATCH_PHYS_VIRT)	+= phys2virt.o
+ 
+ # This is executed very early using a temporary stack when no memory allocator
+ # nor global data is available. Everything has to be allocated on the stack.
+-CFLAGS_head-inflate-data.o := $(call cc-option,-Wframe-larger-than=10240)
++CFLAGS_head-inflate-data.o := $(call cc-option,-Wframe-larger-than=10240) \
++	-fno-stack-protector
+ obj-$(CONFIG_XIP_DEFLATED_DATA) += head-inflate-data.o
+ 
+ obj-$(CONFIG_ARM_VIRT_EXT)	+= hyp-stub.o
+-- 
+2.51.0
