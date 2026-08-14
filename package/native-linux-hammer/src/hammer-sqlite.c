@@ -8,7 +8,7 @@
 #include <string.h>
 
 #define STATUS_PREFIX "__HAMMER_SQLITE_STATUS__:"
-#define SQLITE_HEAP_BYTES (500 * 1024)
+#define SQLITE_HEAP_BYTES (240 * 1024)
 
 /*
  * Linux/NOMMU anonymous mappings require physically contiguous pages.  Keep

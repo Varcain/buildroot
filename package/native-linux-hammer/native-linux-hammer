@@ -14,6 +14,7 @@ uinput_control=/run/native-hammer-uinput.control
 sqlite_input=/run/native-hammer-sqlite.in
 sqlite_output=/run/native-hammer-sqlite.out
 db_errors=/tmp/native-hammer-db-errors
+sqlite_helper="${HAMMER_SQLITE:-/usr/bin/hammer-sqlite}"
 transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;'
 vacuum_sql='PRAGMA temp_store_directory="/data/.native-linux-hammer";VACUUM;'
 
@@ -210,14 +211,16 @@ sleep 2
 lvgl_start_line=$(wc -l <"$lvgl_log_all")
 
 # Coalesce any clean pages faulted while starting the player before exec needs
-# one order-7 segment for SQLite's bounded 500 KiB MEMSYS5 arena.
+# one order-6 segment for SQLite's bounded 240 KiB MEMSYS5 arena.  Keeping the
+# complete FDPIC data segment below 256 KiB is required by PREEMPT_RT's SLUB
+# footprint on this 8 MiB NOMMU board; the workload uses a 16 KiB page cache.
 if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline &&
 	[ -w /proc/sys/vm/drop_caches ]; then
 	echo 3 >/proc/sys/vm/drop_caches
 fi
 
 mkfifo "$sqlite_input" "$sqlite_output" || exit 4
-/usr/bin/hammer-sqlite "$database" --batch "$sqlite_input" "$sqlite_output" \
+"$sqlite_helper" "$database" --batch "$sqlite_input" "$sqlite_output" \
 	2>"$db_errors" &
 sqlite_pid=$!
 exec 3>"$sqlite_input"
