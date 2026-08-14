@@ -1,7 +1,6 @@
 config BR2_PACKAGE_DOSFSTOOLS
 	bool "dosfstools"
 	depends on BR2_USE_WCHAR
-	select BR2_PACKAGE_LIBICONV if !BR2_ENABLE_LOCALE
 	help
 	  Tools for creating and checking DOS FAT filesystems.
 
@@ -12,6 +11,7 @@ if BR2_PACKAGE_DOSFSTOOLS
 config BR2_PACKAGE_DOSFSTOOLS_ICONV
 	bool "extended iconv charset conversion"
 	default y
+	select BR2_PACKAGE_LIBICONV if !BR2_ENABLE_LOCALE
 	help
 	  Enable iconv-backed conversion between DOS code pages and the
 	  current locale. Disable this on very small no-MMU systems to use
