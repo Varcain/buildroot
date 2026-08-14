@@ -1,0 +1,125 @@
+{
+  "schema": "native-linux-hammer-iteration-v1",
+  "iteration": 2,
+  "name": "preempt",
+  "status": "PASS",
+  "duration_s": 300,
+  "change": {
+    "description": "Enable generic kernel preemption after the scope fast-path iteration.",
+    "implementation_commit": "ba3714ad0bb01ca857075013f751cbf2a81aaa82",
+    "capture_commit": "12e0c5a07b4af44429b8d905a26e3a517a88157e",
+    "scheduler_before": "CONFIG_PREEMPT_NONE",
+    "scheduler_after": "CONFIG_PREEMPT",
+    "cumulative_from": "01-scope-fast"
+  },
+  "constant_contract": {
+    "board": "STM32F746G-DISCO at 216 MHz",
+    "kernel": "Linux 5.15.211 ARM NOMMU FDPIC XIP from QSPI",
+    "rootfs": "read-only CramFS in QSPI",
+    "data": "VFAT on the same SD card at approximately 1.95 MHz",
+    "display": "LVGL 9.5.0, software render to /dev/fb0",
+    "latency": "TIM3 CH1 PB4/D3 hardware reference to priority-99 SCHED_FIFO kthread PG7/D4 response",
+    "workload": "lvmusic -5, SQLite 0, HTTP receive 10"
+  },
+  "artifacts": {
+    "uImage_xip": {
+      "path": "output-hammer-iterations/02-preempt/images/uImage.xip",
+      "sha256": "6b7ae83df9dcfdbfa3842c8727dea67182521bd1b173812bf3fcb0e33c95f4c1"
+    },
+    "dtb": {
+      "path": "output-hammer-iterations/02-preempt/images/stm32f746-disco-hammer.dtb",
+      "sha256": "784092cdab99ac93c5319a6b77ef5a7b0edda697533ed3899846556d67f4c1f6",
+      "unchanged_from_iteration_1": true
+    },
+    "rootfs_cramfs_sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58",
+    "uboot_bin_sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
+  },
+  "configuration_sha256": {
+    "buildroot_kernel": "355a6fe6ca9d2d5bf1659eab0e7d9f12b9c5b9494d05f1229a6194b0af3dd63a",
+    "buildroot_rootfs": "11b933da8e1b6b64edb665defd66276ee0e3a9c2bffde8abac8005dea115cf3d",
+    "linux": "855d1f37be45cbd57e86913363614ed827c30f4be49350aac8ef4bb86c818379",
+    "busybox": "3e0cc74c4939a1d42bc4a93d5f71ada33e196e91664f517ca1a63ebedaabf71e",
+    "uboot": "848a04ebf54f4962f0aeedb014454cca5ad87ad0262e12f1959521c59c2f9d65",
+    "lvgl": "02273304313fa0a923d85f1016ada0265f83d7db820a3c0001cdd5b3a88c14ac"
+  },
+  "deployment": {
+    "programmed_range": "QSPI 0x900fffc0 length 3145728",
+    "kernel_write_kib_per_s": 8.783,
+    "kernel_verify_kib_per_s": 8.815,
+    "dtb_programmed": false,
+    "rootfs_programmed": false,
+    "sd_modified_outside_benchmark": false,
+    "verification": "contents match"
+  },
+  "result": {
+    "path": "output-hammer-iterations/02-preempt/results/full-300s/result.json",
+    "raw_serial_log": "output-hammer-iterations/02-preempt/logs/hammer-full-300s.log",
+    "identity_log": "output-hammer-iterations/02-preempt/logs/identity.log",
+    "sqlite": {
+      "transactions": 80,
+      "transactions_per_second": 0.26137811611722805,
+      "rows": 640,
+      "meta": 640,
+      "live_rows": 128,
+      "integrity": "ok"
+    },
+    "network": {
+      "bytes": 8716288,
+      "elapsed_s": 300.32485193014145,
+      "mbps": 0.23218292975707505,
+      "early_eof": false,
+      "errors": 0
+    },
+    "lvgl": {
+      "active_samples": 123,
+      "fps_mean": 1.0,
+      "render_ms_mean": 688.390243902439,
+      "flush_ms_mean": 58.09756097560975,
+      "refresh_ms_mean": 759.1869918699186
+    },
+    "scope": {
+      "elapsed_s": 306.385005885,
+      "releases": 306385,
+      "executions": 283447,
+      "missed_releases": 22938,
+      "missed_percent": 7.48665894218059,
+      "late_finishes": 618,
+      "dispatch_average_ns": 444611,
+      "dispatch_p99_upper_us": 1000,
+      "dispatch_p99_9_upper_us": 1000,
+      "dispatch_max_ns": 999981,
+      "work_average_ns": 6889,
+      "work_max_ns": 959444
+    },
+    "cpu": {
+      "overall_busy_percent": 100.0,
+      "rt_scope_percent": 33.41631447924507,
+      "lvmusic_percent": 32.14843976147745,
+      "sqlite_percent": 5.688068083135529
+    }
+  },
+  "previous_iteration_delta_percent": {
+    "sqlite_transactions": -20.0,
+    "sqlite_transactions_per_second": -17.448949586695882,
+    "network_mbps": -48.07082236345334,
+    "lvgl_render_ms_mean": 8.823167395047204,
+    "lvgl_flush_ms_mean": 12.558612918468981,
+    "scope_dispatch_average_ns": 9.280770402996662,
+    "scope_missed_rate": -35.783243366905396,
+    "scope_late_finishes": 17.267552182163183,
+    "scope_cpu_percent": 5.3313993947181615
+  },
+  "baseline_delta_percent": {
+    "sqlite_transactions": -3.6144578313253017,
+    "sqlite_transactions_per_second": -4.874111402974601,
+    "network_mbps": -44.10700296490157,
+    "lvgl_render_ms_mean": -16.279244041907003,
+    "lvgl_flush_ms_mean": -7.781649245063882,
+    "scope_dispatch_average_ns": -0.8180191756008592,
+    "scope_missed_rate": -33.02778847060557,
+    "scope_late_finishes": -88.71439006574143,
+    "scope_cpu_percent": -20.37484815669366
+  },
+  "decision": "Do not carry CONFIG_PREEMPT into the throughput-optimization base. Retain this measured variant as the latency/throughput tradeoff result; continue from iteration 1 PREEMPT_NONE unless a later driver change specifically needs retesting with preemption.",
+  "interpretation": "Generic preemption reduced the missed-release rate but did not reduce average D3-to-D4 dispatch latency. The simultaneous throughput and display regressions indicate that the dominant latency lies in IRQ-disabled or spinlocked paths and that additional preemption points add overhead on this single-core NOMMU target."
+}
