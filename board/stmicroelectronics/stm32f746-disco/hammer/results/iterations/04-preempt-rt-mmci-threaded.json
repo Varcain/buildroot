@@ -1,0 +1,68 @@
+{
+  "schema": "native-linux-hammer-iteration-v1",
+  "iteration": 4,
+  "name": "preempt-rt-mmci-threaded",
+  "status": "FAIL_STORAGE",
+  "duration_s_requested": 30,
+  "change": {
+    "description": "Keep the PREEMPT_RT MMCI handler threaded, but disable preemption while its board-specific one-sector PIO loop fills the FIFO.",
+    "implementation_commit": "522629053e",
+    "cumulative_from": "03-preempt-rt"
+  },
+  "constant_contract": {
+    "board": "STM32F746G-DISCO at 216 MHz",
+    "kernel": "Linux 5.15.211-rt97 ARM NOMMU FDPIC XIP from QSPI",
+    "rootfs": "read-only CramFS in QSPI",
+    "data": "VFAT on the same SD card at approximately 1.95 MHz",
+    "latency": "TIM3 CH1 PB4/D3 hardware reference to priority-99 SCHED_FIFO kthread PG7/D4 response"
+  },
+  "artifacts": {
+    "uImage_xip": {
+      "path": "output-hammer-iterations/04-preempt-rt-mmci/images/uImage.xip",
+      "sha256": "203374e26aab0ccee36b3b51739e0111b75f2da579f8c87f33c6ff90db4d26d8"
+    },
+    "xipImage_sha256": "a072795ac4f2e8bde54ff92284439471f940971e041cc325749a905ceef5e3f4",
+    "dtb_sha256": "784092cdab99ac93c5319a6b77ef5a7b0edda697533ed3899846556d67f4c1f6"
+  },
+  "configuration_sha256": {
+    "buildroot": "07d55dee4d0cbab4ee5e8e5cdc07e27e4bb2790f850ca77970f24719a178d885",
+    "linux": "e66fc59aebd24dfbc23c758b84deac0698143b3a7b60bf5e32512fb9a77d2308"
+  },
+  "deployment": {
+    "programmed_range": "QSPI 0x900fffc0 length 3045304",
+    "bytes_written": 2414520,
+    "bytes_skipped_identical": 630784,
+    "dtb_programmed": false,
+    "rootfs_programmed": false,
+    "verification": "U-Boot accepted the staged CRC before update and verified the programmed QSPI image CRC during the subsequent clean boot."
+  },
+  "boot": {
+    "status": "PASS",
+    "raw_serial_log": "output-hammer-iterations/04-preempt-rt-mmci/logs/boot.log",
+    "kernel_identity": "Linux 5.15.211-rt97 #4 PREEMPT_RT",
+    "warnings": 0
+  },
+  "storage_probe": {
+    "status": "FAIL",
+    "path": "output-hammer-iterations/04-preempt-rt-mmci/logs/storage-write-probe.log",
+    "operation": "write and sync 256 KiB, drop caches, read and hash, delete and sync",
+    "readback_sha256": "0a10b03253801127093601195899f117a4c170a14a74670f779edc5e34b1c599",
+    "expected_zero_256k_sha256": "8a39d2abd3999ab73c34db2476849cddf303ce389b35826850f9a700589b4a90",
+    "block_write_errors": "repeated",
+    "interpretation": "The post-drop-cache hash does not match 256 KiB of zeroes, and the block layer reported many failed data sectors plus a failed FAT metadata write."
+  },
+  "runtime_priority_followup": {
+    "status": "FAIL",
+    "change": "Set irq/35-mmci-pl18x to SCHED_FIFO priority 98, immediately below rt_scope at priority 99.",
+    "setup_log": "output-hammer-iterations/04-preempt-rt-mmci/logs/mmci-priority-stage-v2.log",
+    "fsck_log": "output-hammer-iterations/04-preempt-rt-mmci/logs/mmci-priority-fsck-v2.log",
+    "observation": "Sync and fsck still returned block write I/O errors at sector 2048.",
+    "conclusion": "Ordinary IRQ-thread dispatch priority is not the only lost hard-IRQ semantic."
+  },
+  "hammer": {
+    "status": "NOT_RUN",
+    "reason": "A full workload would further damage FAT and could not produce valid SQLite durability results."
+  },
+  "decision": "Retain this negative result. Test a board-opt-in compatibility mode that keeps the MMCI primary handler unthreaded and restores raw-spinlock serialization, then quantify its unavoidable interrupt-off cost with the physical scope.",
+  "interpretation": "Preventing higher-priority task preemption during the FIFO fill and raising the MMCI IRQ thread both failed. The STM32F746 workaround depends more broadly on the original hard-IRQ execution and lock semantics."
+}
