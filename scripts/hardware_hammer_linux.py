@@ -323,11 +323,23 @@ def matching_build_file(build_dir, directory_glob, filename):
     return matches[0] / filename
 
 
+def scheduler_from_kernel_config(config):
+    if config is None or not config.is_file():
+        return "unknown"
+    text = config.read_text(errors="replace")
+    for symbol in ("CONFIG_PREEMPT", "CONFIG_PREEMPT_VOLUNTARY",
+                   "CONFIG_PREEMPT_NONE"):
+        if re.search(rf"^{symbol}=y$", text, re.M):
+            return symbol
+    return "unknown"
+
+
 def record_build_metadata(output, build_output, build_dir=None):
     build_dir = build_dir or build_output / "build"
+    linux_config = matching_build_file(build_dir, "linux-[0-9]*", ".config")
     files = {
         "buildroot.config": build_output / ".config",
-        "linux.config": matching_build_file(build_dir, "linux-[0-9]*", ".config"),
+        "linux.config": linux_config,
         "uboot.config": matching_build_file(build_dir, "uboot-*", ".config"),
         "busybox.config": matching_build_file(build_dir, "busybox-*", ".config"),
         "lvgl.config": matching_build_file(
@@ -360,7 +372,7 @@ def record_build_metadata(output, build_output, build_dir=None):
             "uboot": "2026.07",
             "lvgl": "9.5.0",
             "architecture": "ARM Cortex-M7 NOMMU FDPIC",
-            "scheduler_baseline": "CONFIG_PREEMPT_NONE",
+            "scheduler": scheduler_from_kernel_config(linux_config),
         },
         "configuration_sha256": copied,
         "images": images,

@@ -1,0 +1,6 @@
+# This fragment is intentionally applied after linux.fragment.  It defines a
+# distinct follow-up experiment and must never replace the PREEMPT_NONE
+# baseline result.
+# CONFIG_PREEMPT_NONE is not set
+# CONFIG_PREEMPT_VOLUNTARY is not set
+CONFIG_PREEMPT=y
