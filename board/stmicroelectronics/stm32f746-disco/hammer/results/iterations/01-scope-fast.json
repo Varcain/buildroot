@@ -1,0 +1,102 @@
+{
+  "schema": "native-linux-hammer-iteration-v1",
+  "iteration": 1,
+  "name": "scope-fast",
+  "status": "PASS",
+  "duration_s": 300,
+  "change": {
+    "description": "Wake the priority-99 scope kthread directly and toggle PG7 through GPIOG BSRR while retaining Linux resource ownership.",
+    "implementation_commit": "665c1f2071d4d699a6df96fcc72a5c0e07478869",
+    "capture_commit": "ea2a9a238289938d5dcf9e8e7219e7e881d75f9f",
+    "scheduler": "CONFIG_PREEMPT_NONE",
+    "wakeup": "direct-kthread",
+    "response_toggle": "direct-gpio-bsrr"
+  },
+  "constant_contract": {
+    "board": "STM32F746G-DISCO at 216 MHz",
+    "kernel": "Linux 5.15.211 ARM NOMMU FDPIC XIP from QSPI",
+    "rootfs": "read-only CramFS in QSPI",
+    "data": "VFAT on the same SD card at approximately 1.95 MHz",
+    "display": "LVGL 9.5.0, software render to /dev/fb0",
+    "latency": "TIM3 CH1 PB4/D3 hardware reference to priority-99 SCHED_FIFO kthread PG7/D4 response",
+    "workload": "lvmusic -5, SQLite 0, HTTP receive 10"
+  },
+  "artifacts": {
+    "uImage_xip": {
+      "path": "output-hammer-iterations/01-scope-fast/images/uImage.xip",
+      "sha256": "ff6b595e8401b03ebda4347c1378850f8a1ae44e327a16bf27c808a1680c9bdc"
+    },
+    "dtb": {
+      "path": "output-hammer-iterations/01-scope-fast/images/stm32f746-disco-hammer.dtb",
+      "sha256": "784092cdab99ac93c5319a6b77ef5a7b0edda697533ed3899846556d67f4c1f6"
+    },
+    "rootfs_cramfs_sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58",
+    "uboot_bin_sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
+  },
+  "configuration_sha256": {
+    "buildroot_kernel": "b74f3e024aff85312012dbb105707f791d1cae1b9bd229e581310ce4c34fa9e7",
+    "buildroot_rootfs": "11b933da8e1b6b64edb665defd66276ee0e3a9c2bffde8abac8005dea115cf3d",
+    "linux": "41ef24c3cf9399856a219fd0286361146d3b13614b471344787c6651d3c55e3c",
+    "busybox": "3e0cc74c4939a1d42bc4a93d5f71ada33e196e91664f517ca1a63ebedaabf71e",
+    "uboot": "848a04ebf54f4962f0aeedb014454cca5ad87ad0262e12f1959521c59c2f9d65",
+    "lvgl": "02273304313fa0a923d85f1016ada0265f83d7db820a3c0001cdd5b3a88c14ac"
+  },
+  "result": {
+    "path": "output-hammer-iterations/01-scope-fast/results/full-300s/result.json",
+    "raw_serial_log": "output-hammer-iterations/01-scope-fast/logs/hammer-full-300s.log",
+    "sqlite": {
+      "transactions": 100,
+      "transactions_per_second": 0.3166260329924327,
+      "rows": 800,
+      "meta": 800,
+      "live_rows": 128,
+      "integrity": "ok"
+    },
+    "network": {
+      "bytes": 16842752,
+      "elapsed_s": 301.3590228743851,
+      "mbps": 0.44711459014839006,
+      "early_eof": false,
+      "errors": 0
+    },
+    "lvgl": {
+      "active_samples": 130,
+      "fps_mean": 1.0076923076923077,
+      "render_ms_mean": 632.5769230769231,
+      "flush_ms_mean": 51.61538461538461,
+      "refresh_ms_mean": 697.623076923077
+    },
+    "scope": {
+      "elapsed_s": 316.072044587,
+      "releases": 316072,
+      "executions": 279222,
+      "missed_releases": 36849,
+      "missed_percent": 11.658419600597332,
+      "late_finishes": 527,
+      "dispatch_average_ns": 406852,
+      "dispatch_p99_upper_us": 1000,
+      "dispatch_p99_9_upper_us": 1000,
+      "dispatch_max_ns": 999981,
+      "work_average_ns": 8370,
+      "work_max_ns": 956833
+    },
+    "cpu": {
+      "overall_busy_percent": 100.0,
+      "rt_scope_percent": 31.724931664508702,
+      "lvmusic_percent": 31.992519062005467,
+      "sqlite_percent": 4.888505251043015
+    }
+  },
+  "baseline_delta_percent": {
+    "sqlite_transactions": 20.481927710843383,
+    "sqlite_transactions_per_second": 15.23280215183631,
+    "network_mbps": 7.633125689558606,
+    "lvgl_render_ms_mean": -23.06715751603521,
+    "lvgl_flush_ms_mean": -18.070818070818074,
+    "scope_dispatch_average_ns": -9.2411405422528,
+    "scope_missed_rate": 4.2908658748420425,
+    "scope_late_finishes": -90.37618699780862,
+    "scope_cpu_percent": -24.405113479106443
+  },
+  "interpretation": "The observer fast path materially reduced CPU cost and late finishes, improving application throughput. It did not improve the non-preemptible scheduler enough: the dispatch average remained 406.9 us and the missed-release rate increased slightly from 11.18% to 11.66%."
+}
