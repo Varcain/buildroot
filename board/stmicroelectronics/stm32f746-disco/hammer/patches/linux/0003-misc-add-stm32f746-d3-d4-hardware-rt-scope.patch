@@ -151,7 +151,7 @@ index 000000000000..111111111111
 +	struct gpio_desc *response;
 +	struct task_struct *thread;
 +	struct proc_dir_entry *proc;
-+	spinlock_t lock;
++	raw_spinlock_t lock;
 +	u32 deadline_count;
 +	u32 last_execution_deadline;
 +	u32 reset_deadline;
@@ -219,7 +219,7 @@ index 000000000000..111111111111
 +
 +	writel_relaxed(0, scope->base + RT_TIM_SR);
 +
-+	spin_lock_irqsave(&scope->lock, flags);
++	raw_spin_lock_irqsave(&scope->lock, flags);
 +	elapsed_ns = deadline_ns > scope->last_deadline_ns ?
 +		deadline_ns - scope->last_deadline_ns : 0;
 +	periods = DIV_ROUND_CLOSEST_ULL(elapsed_ns, RT_SCOPE_PERIOD_NS);
@@ -235,14 +235,14 @@ index 000000000000..111111111111
 +	if (age_ticks > scope->metrics.irq_entry_age_max_ticks)
 +		scope->metrics.irq_entry_age_max_ticks = min_t(u64, age_ticks,
 +								 U32_MAX);
-+	spin_unlock_irqrestore(&scope->lock, flags);
++	raw_spin_unlock_irqrestore(&scope->lock, flags);
 +
 +	wake_up_process(scope->thread);
 +	signal_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
-+	spin_lock_irqsave(&scope->lock, flags);
++	raw_spin_lock_irqsave(&scope->lock, flags);
 +	if (signal_ticks > scope->metrics.irq_signal_age_max_ticks)
 +		scope->metrics.irq_signal_age_max_ticks = signal_ticks;
-+	spin_unlock_irqrestore(&scope->lock, flags);
++	raw_spin_unlock_irqrestore(&scope->lock, flags);
 +
 +	return IRQ_HANDLED;
 +}
@@ -283,11 +283,11 @@ index 000000000000..111111111111
 +		if (kthread_should_stop())
 +			break;
 +
-+		spin_lock_irqsave(&scope->lock, flags);
++		raw_spin_lock_irqsave(&scope->lock, flags);
 +		deadline = scope->deadline_count;
 +		previous = scope->last_execution_deadline;
 +		window_previous = max(previous, scope->reset_deadline);
-+		spin_unlock_irqrestore(&scope->lock, flags);
++		raw_spin_unlock_irqrestore(&scope->lock, flags);
 +		if (deadline == previous)
 +			continue;
 +
@@ -306,7 +306,7 @@ index 000000000000..111111111111
 +			RT_SCOPE_PERIOD_TICKS - dispatch_ticks + finish_ticks :
 +			finish_ticks - dispatch_ticks;
 +
-+		spin_lock_irqsave(&scope->lock, flags);
++		raw_spin_lock_irqsave(&scope->lock, flags);
 +		scope->last_execution_deadline = deadline;
 +		if (deadline > scope->reset_deadline) {
 +			missed = deadline > window_previous ?
@@ -337,7 +337,7 @@ index 000000000000..111111111111
 +			scope->metrics.dispatch_hist[
 +				rt_scope_histogram_bin(dispatch_ticks)]++;
 +		}
-+		spin_unlock_irqrestore(&scope->lock, flags);
++		raw_spin_unlock_irqrestore(&scope->lock, flags);
 +	}
 +
 +	rt_scope_set_response(scope, false);
@@ -349,13 +349,13 @@ index 000000000000..111111111111
 +	u64 now_ns = ktime_get_mono_fast_ns();
 +	unsigned long flags;
 +
-+	spin_lock_irqsave(&scope->lock, flags);
++	raw_spin_lock_irqsave(&scope->lock, flags);
 +	memset(&scope->metrics, 0, sizeof(scope->metrics));
 +	scope->metrics.dispatch_min_ticks = U32_MAX;
 +	scope->metrics.work_min_ticks = U32_MAX;
 +	scope->reset_deadline = scope->deadline_count;
 +	scope->reset_ns = now_ns;
-+	spin_unlock_irqrestore(&scope->lock, flags);
++	raw_spin_unlock_irqrestore(&scope->lock, flags);
 +}
 +
 +static int rt_scope_proc_show(struct seq_file *sequence, void *unused)
@@ -381,13 +381,13 @@ index 000000000000..111111111111
 +
 +	sample_ns = ktime_get_mono_fast_ns();
 +	phase_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
-+	spin_lock_irqsave(&scope->lock, flags);
++	raw_spin_lock_irqsave(&scope->lock, flags);
 +	metrics = scope->metrics;
 +	deadline_count = scope->deadline_count;
 +	reset_deadline = scope->reset_deadline;
 +	reset_ns = scope->reset_ns;
 +	last_execution = scope->last_execution_deadline;
-+	spin_unlock_irqrestore(&scope->lock, flags);
++	raw_spin_unlock_irqrestore(&scope->lock, flags);
 +
 +	releases = deadline_count - reset_deadline;
 +	pending = deadline_count - max(last_execution, reset_deadline);
@@ -539,7 +539,7 @@ index 000000000000..111111111111
 +		return -ENOMEM;
 +	scope->dev = dev;
 +	scope->payload_state = 0x6d2b79f5U;
-+	spin_lock_init(&scope->lock);
++	raw_spin_lock_init(&scope->lock);
 +	rt_scope_reset_metrics(scope);
 +
 +	scope->base = devm_platform_ioremap_resource_byname(pdev, "timer");
