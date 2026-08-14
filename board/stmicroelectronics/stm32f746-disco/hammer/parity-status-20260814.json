@@ -1,0 +1,127 @@
+{
+  "status": "BLOCKED_ON_SD_FAT_REPAIR_APPROVAL",
+  "captured_at": "2026-08-14T02:10:00Z",
+  "source_branch": "linux-kernel-hammer-poc",
+  "source_commit": "ba3714ad0b",
+  "baseline_scheduler": "CONFIG_PREEMPT_NONE",
+  "board": {
+    "model": "STM32F746G-DISCO",
+    "system_clock_hz": 216000000,
+    "memory_bytes": 8388608,
+    "boot": "U-Boot in internal flash; Linux XIP and read-only CramFS in QSPI",
+    "boot_retry_required": false,
+    "ethernet": "172.1.1.2/24, 100baseT full duplex",
+    "framebuffer": "stmdrmfb",
+    "touch": "generic ft5x06 (51)"
+  },
+  "images": {
+    "qspi_hammer_xip": {
+      "bytes": 16777216,
+      "sha256": "cee17213d4272f0049bb2feb85c19c86ee8a013c6b7f7a667db79022e4c4b635",
+      "programmed_and_verified": true
+    },
+    "xip_kernel": {
+      "bytes": 2913800,
+      "sha256": "c03f036b18bb5ad8c9f0d69b4a73d235e914640a466b7eb9c0a0efeb35ba9615"
+    },
+    "rootfs_cramfs": {
+      "bytes": 4169728,
+      "sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58"
+    },
+    "device_tree": {
+      "bytes": 17534,
+      "sha256": "48349edaef58af37774ef5b65a42aa1cc34ec9773f8e4898a62635549b432aa8"
+    },
+    "uboot_internal_flash": {
+      "bytes": 370888,
+      "sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
+    },
+    "embedded_runner_sha256": "1b589ede9baf0f434eee9f34aa18cf0d46c4f31fca0ccedbddd73ffa64258c43"
+  },
+  "storage": {
+    "boot_uses_sd": false,
+    "data_device": "/dev/mmcblk0p1",
+    "data_filesystem": "vfat",
+    "data_capacity_gib": 14.9,
+    "requested_clock_hz": 2000000,
+    "actual_clock_hz": 1950000,
+    "driver": "mmci-pl18x PIO",
+    "consistent": false,
+    "kernel_error": "fat_free_clusters: deleting FAT entry beyond EOF",
+    "kernel_action": "Filesystem has been set read-only",
+    "repair_authorized": false
+  },
+  "physical_scope": {
+    "implemented": true,
+    "measurement": "tim3-hardware-to-sched-fifo-kthread",
+    "ch1": "Arduino D3 / PB4 / TIM3_CH1",
+    "ch1_period_us": 1000,
+    "ch1_high_us": 50,
+    "ch2": "Arduino D4 / PG7 GPIO",
+    "timer_phase_hz": 54000000,
+    "thread_policy": "SCHED_FIFO",
+    "thread_priority": 99,
+    "work_iterations": 512,
+    "calculation": "state = state * 1664525 + 1013904223",
+    "matches_lxp_physical_contract": true,
+    "usb_oscilloscope_enumerated": false,
+    "instrument_trace_captured": false
+  },
+  "diagnostic_300s": {
+    "admissible_comparison": false,
+    "reason": [
+      "used the former 24 MHz SD profile",
+      "pre-boundary diagnostic observer triggered one OOM",
+      "old scope capture timestamp included the proc read delay"
+    ],
+    "sqlite_transactions": 147,
+    "sqlite_rows": 1176,
+    "sqlite_integrity": "ok",
+    "network_bytes": 19267584,
+    "network_elapsed_s": 300.2392483204603,
+    "lvgl_active_samples": 55,
+    "scope_releases": 302367,
+    "scope_executions": 276791,
+    "scope_missed_releases": 25575,
+    "scope_late_finishes": 3616,
+    "scope_dispatch_average_ns": 400630,
+    "scope_dispatch_p99_ceiling_us": 1000,
+    "scope_dispatch_p999_ceiling_us": 1000,
+    "scope_dispatch_max_ns": 999889
+  },
+  "preempt_follow_up": {
+    "profile": "stm32f746_disco_hammer_qspi_xip_preempt_defconfig",
+    "config_merge_validated": true,
+    "symbols": [
+      "CONFIG_PREEMPT=y",
+      "CONFIG_PREEMPTION=y",
+      "CONFIG_PREEMPT_RCU=y"
+    ],
+    "hardware_run_complete": false
+  },
+  "evidence": {
+    "boot_identity": "output-hammer-qspi-xip/logs/native-linux-216mhz-2mhz-final-boot-identity.log",
+    "consecutive_boot": "output-hammer-qspi-xip/logs/native-linux-216mhz-consecutive-boot.log",
+    "fat_failure": "output-hammer-qspi-xip/logs/native-linux-216mhz-2mhz-scope-smoke-30s-v3.log",
+    "diagnostic_result": "output-hammer-qspi-xip/hammer-results/native-linux-216mhz-scope-diagnostic-300s-20260814/result.json",
+    "diagnostic_serial": "output-hammer-qspi-xip/logs/native-linux-216mhz-hammer-control.log"
+  },
+  "backups": {
+    "qspi_immediately_before_current_profile": {
+      "path": "output-hammer-qspi-xip/hardware-backup/qspi-before-hammer-xip-20260814T011845Z.bin",
+      "bytes": 16777216,
+      "sha256": "ec8e0fd2e94f370e55484d94b316a595428502efd703572a741f2bc9d8d7947d"
+    },
+    "internal_flash_before_216mhz": {
+      "path": "output-hammer-qspi-xip/hardware-backup/internal-flash-before-216mhz-20260814T0052Z.bin",
+      "bytes": 1048576
+    }
+  },
+  "required_next_actions": [
+    "obtain explicit approval and repair the FAT allocation structure without formatting",
+    "run a clean 30-second smoke test",
+    "run and archive the 300-second PREEMPT_NONE baseline",
+    "run and archive the separately identified CONFIG_PREEMPT result",
+    "attach oscilloscope CH1 to Arduino D3 and CH2 to Arduino D4 and save a two-channel trace"
+  ]
+}

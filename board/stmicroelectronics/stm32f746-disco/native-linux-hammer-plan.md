@@ -46,17 +46,23 @@ still requires SD solely because parity requires persistent FAT `/data`.
 
 ## Execution status (2026-08-14)
 
-Phases 1 through 7 are complete for the `CONFIG_PREEMPT_NONE` baseline.  The
-exact embedded 500 KiB-heap image passed a 30-second smoke test, a cold
-standalone SQLite integrity check, and the definitive 300-second run.  Serial,
-display, uinput automation, physical touch discovery, Ethernet, QSPI XIP root,
-and VFAT data I/O were verified on hardware.  Dropbear and the static address
-are configured, but the host had no SSH agent, so jump-host login could not be
-authenticated; serial was used for command and log capture.  The physical
-TIM3/PB4-to-PG7 scope implementation remains open, so Linux latency is the
-explicitly weaker userspace measurement.  Phase 8 is complete as a
-directional comparison only because SD clock, rendering acceleration, and
-latency semantics do not match the selected LXP reference.
+Phases 1 through 6 are implemented for the `CONFIG_PREEMPT_NONE` baseline.
+Serial, display, uinput automation, physical touch discovery, Ethernet, QSPI
+XIP root, and VFAT mounting were verified on hardware. The XIP warm-reset bug
+is fixed, and Linux now runs at the same 216 MHz board clock as oveRTOS. The
+physical scope driver owns TIM3/PB4/PG7 safely and continuously generates the
+same Arduino D3/D4 contract at a 54 MHz timer phase. The current SD profile
+requests 2 MHz and the driver reports 1.95 MHz actual. A separate
+`CONFIG_PREEMPT` follow-up profile has passed Kconfig validation.
+
+Phase 7 is currently blocked before measurement: the existing FAT data volume
+contains an allocation entry beyond EOF and Linux remounts it read-only. No
+repair or format is authorized. The 300-second 216 MHz physical-scope
+diagnostic proves all concurrent workers but is non-admissible because it used
+the former 24 MHz profile and its old observer/timestamp logic. Dropbear and
+the static address are configured, but the host had no SSH agent, so serial is
+the proven administrative and log-capture path. No USB oscilloscope was
+enumerated, so a saved two-channel instrument trace remains external work.
 
 ## Phases and acceptance gates
 
@@ -147,9 +153,13 @@ Adapt the shell reference without changing its work:
 - no SQLite errors, no early network EOF, a positive deadline-length transfer,
   and enough active LVGL samples.
 
-Replace `/proc/lxp_fs` with before/after `df`, `/proc/mounts`,
-`/proc/diskstats`, `statfs`, interface counters, CPU accounting, and process
-attribution.  Preserve unmodified raw output as well as normalized JSON.
+Replace `/proc/lxp_fs` with before/after `/proc/mounts`, `/proc/diskstats`,
+block counters, interface counters, CPU accounting, and process attribution.
+Do not execute `df`, `statfs`, `top`, or repeated `cat` processes under the
+measured NOMMU load: they can require unavailable high-order allocations, and
+the first FAT free-cluster scan is extremely slow at 2 MHz. Read procfs/sysfs
+with the resident shell and keep any filesystem-space query outside the load.
+Preserve unmodified raw output as well as normalized JSON.
 Scripts are runnable from `/tmp` during iteration; the accepted result uses
 the copy embedded at `/usr/bin/native-linux-hammer` in the recorded CramFS.
 
@@ -158,20 +168,15 @@ run is accepted.
 
 ### 6. Linux real-time latency counterpart
 
-First implement a small absolute-clock, 1 kHz `SCHED_FIFO` thread that performs
-the same fixed 512-iteration calculation.  It records releases, executions,
-missed releases, late finishes, and dispatch min/average/p99/p99.9/max.  This
-is explicitly labelled **timer-to-thread scheduling latency** and is not
-presented as identical to the hardware CH1-to-CH2 measurement.
+The fallback absolute-clock, 1 kHz `SCHED_FIFO` userspace thread remains
+available, but it is not selected when the physical driver is present.
 
-In parallel with bring-up, audit the live device tree, pinctrl, PWM framework,
-clocks, and `/proc/interrupts` for TIM3/PB4/PG7 ownership.  If those resources
-can be claimed safely, add a kernel driver which uses TIM3_CH1 on PB4 for a
-hardware-generated 1 kHz/50 us CH1 pulse and wakes a highest-priority
-`SCHED_FIFO` kernel thread which pulses PG7 on CH2 around the same calculation.
-Use kernel clock, timer, GPIO, PWM, pinctrl, and IRQ APIs rather than unowned
-direct-register writes.  Report both software metrics and oscilloscope
-observations.
+The live device-tree, pinctrl, PWM, clock, and interrupt audit found TIM3, PB4,
+and PG7 available. The implemented kernel driver exclusively claims the timer
+resource, IRQ 29, pinctrl reference pin, and response GPIO. TIM3_CH1 generates
+the 1 kHz/50 us D3 pulse in hardware; a priority-99 `SCHED_FIFO` kernel thread
+pulses D4 around the same calculation. `/proc/rt_scope` reports the software
+metrics. Oscilloscope observations still require a connected instrument.
 
 Gate: baseline latency is collected with `CONFIG_PREEMPT` disabled.  Any later
 `CONFIG_PREEMPT` image and result have distinct identities and result paths.
@@ -224,10 +229,11 @@ parity-gap table, and exact restoration steps.
 | Native framebuffer/touch coverage may be incomplete in Linux 5.15 | Verify device-tree and driver binding from logs/sysfs; treat patches as separate logical changes. |
 | Native Linux may lack LXP's DMA2D path | Record the actual LVGL draw/flush backend; software rendering is not performance-parity and its directional bias must accompany results. |
 | QSPI root differs from LXP's personality CPIO layout | Keep it read-only, hash the full QSPI image, and report that only Linux executable/file reads use QSPI while SD carries only FAT data writes. |
-| Native Linux was stable only at a 24 MHz SD cap while the selected LXP lineage is the 2 MHz setup | Treat throughput and contention deltas as directional; a future 2 MHz Linux rerun is required for direct storage parity. |
+| The current Linux SD request is 2 MHz and PL180 reports 1.95 MHz actual | Record the requested and actual clocks; retain driver/DMA policy as an unavoidable implementation difference. |
 | FAT implementations and cache/writeback semantics differ | Match VFAT and SQLite durability pragmas, sync at defined boundaries, capture mount options, and avoid claiming semantic identity beyond those controls. |
 | Non-preemptible Linux can have long scheduling tails | Preserve it as the requested baseline; evaluate `CONFIG_PREEMPT` only as a separately identified follow-up. |
-| Absolute-clock latency lacks the oveRTOS hardware reference | Label it weaker and compare only when timer semantics are explicit; prefer CH1-to-CH2 data if the safe driver is completed. |
+| Linux and oveRTOS now share the D3/PB4 hardware reference and D4/PG7 response, but use system-native scheduler objects | Compare the physical edge quantity while documenting Linux's FIFO kernel thread versus oveRTOS's portable critical host task. |
+| Current `/data` FAT has an allocation entry beyond EOF | Do not benchmark, repair, or format until explicit approval; back up and run a read-only check before any repair. |
 | U-Boot flashing overwrites oveRTOS internal flash | Verify the intended existing oveRTOS flash launcher before use and include its exact restoration command. |
 | SD imaging is destructive and may erase `/data` | Resolve the exact removable device with `lsblk`, show it to the user, and require confirmation before unmount or `dd`; preserve benchmark data first when requested. |
 
@@ -257,6 +263,8 @@ The exact internal-flash backup made in the same session is
 (SHA-256 `1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c`).
 The regular verified oveRTOS flash launchers and LXP QSPI programmer are the
 preferred personality restoration path and are listed in `hammer/README.md`.
-The SD card is now a data-only MBR/FAT card; it was cleanly unmounted after the
-accepted run.  No whole-device pre-format image exists, so byte-exact recovery
-of content that predated provisioning is impossible; do not claim otherwise.
+The SD card is a data-only MBR/FAT card, but it is currently inconsistent and
+Linux remounts it read-only when the bad allocation entry is encountered. No
+whole-device pre-format image exists, so byte-exact recovery of content that
+predated provisioning is impossible; do not repair or claim recovery without
+explicit user approval.

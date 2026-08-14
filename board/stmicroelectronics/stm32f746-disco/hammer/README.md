@@ -5,6 +5,13 @@ hammer proof of concept.  It deliberately leaves the stock
 `stm32f746_disco_sd_defconfig` unchanged.  The implementation plan and its
 acceptance gates are in `../native-linux-hammer-plan.md`.
 
+The current hardware closure status is machine-readable in
+`parity-status-20260814.json`. Native Linux boots deterministically from the
+verified QSPI image and the physical D3/D4 latency driver is live. The next
+admissible five-minute run is blocked by an existing FAT inconsistency on the
+data card; Linux reports an allocation entry beyond EOF and remounts `/data`
+read-only. Do not repair or reformat that card without explicit approval.
+
 The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
 flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
 mounts a read-only XIP-enabled CramFS from another aligned QSPI window. ELF
@@ -55,10 +62,12 @@ The combined image layout is:
 | `0x100000` | `0x90100000` | to `0x800000` | XIP kernel |
 | `0x800000` | `0x90800000` | 8 MiB | read-only XIP CramFS root |
 
-The derived kernel remains `CONFIG_PREEMPT_NONE`. The accepted native run caps
-the SD bus at 24 MHz; 2 MHz was not reliable during Linux PL180 write-path
-bring-up. This is a material Linux-favouring parity gap versus the selected
-LXP reference. LVGL 9.5.0 uses RGB565,
+The baseline kernel remains `CONFIG_PREEMPT_NONE`. The current parity profile
+caps the SD bus at 2 MHz; debugfs reports a requested 2,000,000 Hz and an
+actual 1,950,000 Hz clock. The earlier accepted 24 MHz run remains useful only
+as a historical diagnostic. A distinct
+`stm32f746_disco_hammer_qspi_xip_preempt_defconfig` exists for the later
+`CONFIG_PREEMPT` follow-up and must not replace the baseline. LVGL 9.5.0 uses RGB565,
 480x272, a 33 ms refresh period, a full-height draw buffer, and console
 performance logging.  Native Linux uses software drawing and fbdev `pwrite`;
 it does not use DMA2D.
@@ -82,10 +91,12 @@ volatile ramfs at `/data`; the benchmark preflight rejects that fallback.
 
 For the workload, `/data` must be an explicitly identified VFAT partition.
 The init script accepts partition 1 on a data-only card or partition 2 on the
-older SD-root layout. The accepted run used `/dev/mmcblk0p1`, a 14.9 GiB
-data-only FAT32 partition, at 24 MHz in PIO mode. It was synced and cleanly
-unmounted after the run, and the kernel log contained no FAT, MMC, or I/O
-error. Discover and back up the exact device and obtain confirmation before
+older SD-root layout. The current card is `/dev/mmcblk0p1`, a 14.9 GiB
+data-only FAT32 partition, at an actual 1.95 MHz in PIO mode. The 2026-08-14
+parity smoke test found `fat_free_clusters: deleting FAT entry beyond EOF` and
+the kernel changed the mount to read-only. The raw evidence is
+`output-hammer-qspi-xip/logs/native-linux-216mhz-2mhz-scope-smoke-30s-v3.log`.
+Discover and back up the exact device and obtain confirmation before repairing,
 creating, formatting, or imaging any partition.
 
 ## Flash QSPI XIP, U-Boot, and capture the boot
@@ -148,13 +159,26 @@ The image configures `eth0` as `172.1.1.2/24`.  Verify the benchmark path with:
 ssh -J pi root@172.1.1.2
 ```
 
-On the accepted hardware, the first U-Boot XIP handoff after an OpenOCD QSPI
-program stopped after `Starting kernel ...`. A second ST-LINK `reset run`
-booted normally. This reset dependency is reproducible and remains a boot
-gap. The host session had no SSH agent, so the Pi and jump-host authentication
+The alternating warm-boot failure was traced to stack protection in ARM's
+pre-`.data` XIP inflater: successful inflation changed the guard used by the
+same function's epilogue. Compiling only that early inflater without stack
+protection fixed the false panic. Consecutive Linux warm reboots and an
+OpenOCD reset now boot without a retry; see
+`output-hammer-qspi-xip/logs/native-linux-216mhz-consecutive-boot.log` and the
+current `native-linux-216mhz-2mhz-final-boot-identity.log`. The host session
+had no SSH agent, so the Pi and jump-host authentication
 checks failed before reaching the board; Ethernet traffic to the already
 running Pi stream server was nevertheless verified by the complete benchmark
 stream. Serial therefore remains the proven administrative access path.
+
+For reliable automation over the small UART FIFO, use the paced runner and
+keep the password outside the command line:
+
+```sh
+SERIAL_CONSOLE_PASSWORD=root python3 scripts/run_serial_command.py \
+    --device /dev/EXACT_SERIAL --output /tmp/serial-command.log \
+    --command 'uname -a; cat /proc/rt_scope'
+```
 
 ## Stream server and benchmark
 
@@ -187,19 +211,23 @@ JSON.  The validator requires the exact SQLite row/meta/live-row invariants,
 zero SQLite error output, a complete deadline-length stream, enough active
 LVGL samples, and consistent latency release accounting.
 
-The accepted result is
+The last accepted result is the earlier 24 MHz, software-latency baseline:
 `output-hammer-qspi-xip/hammer-results/native-linux-strict300-embedded-final-300s-20260814/result.json`.
 It is tied to full QSPI image SHA-256
 `4821e9b3c7fff933f86d1a995b92259389c953d516ceaa75c696fff640888ac2`.
 The raw benchmark, full boot, and post-run storage logs sit beside it and are
 listed in `comparison.md`.
 
-The latency PoC is an absolute `CLOCK_MONOTONIC` 1 kHz highest-priority
-`SCHED_FIFO` userspace thread with the same 512-iteration calculation.  It is
-timer-to-thread scheduling latency, not the oveRTOS TIM3 CH1-to-PG7 CH2
-interrupt-to-thread measurement.  The final device tree leaves TIM3 disabled,
-and neither PB4 nor PG7 is claimed by this PoC; live pinctrl, PWM, clock, and
-interrupt ownership still must be audited before adding a kernel driver.
+The current latency implementation is a kernel driver with the same physical
+contract as LXP + oveRTOS: TIM3 generates a 1 kHz, 50 us high pulse on Arduino
+D3/PB4/TIM3_CH1, IRQ 29 wakes a priority-99 `SCHED_FIFO` kernel thread, and
+Arduino D4/PG7 is high around the same 512-iteration calculation. TIM3 runs at
+54 MHz from the 108 MHz APB1 timer input. `/proc/rt_scope` reports releases,
+executions, misses, late finishes, min/average/p99/p99.9/max dispatch, work
+time, and IRQ-age diagnostics. Connect oscilloscope CH1 to Arduino D3 and CH2
+to Arduino D4 with both probe grounds on board GND. No USB oscilloscope was
+enumerated during this session, so an instrument trace remains external
+evidence even though both waveforms are generated continuously.
 
 ## Restoration
 
@@ -214,6 +242,12 @@ output/stm32f746/freertos/linux_interop/flash
 
 Equivalent NuttX and Zephyr launchers must be selected and verified explicitly
 when those engines are intended. QSPI XIP replaces the complete QSPI range.
+The full bank immediately before the current 2 MHz parity image is
+`output-hammer-qspi-xip/hardware-backup/qspi-before-hammer-xip-20260814T011845Z.bin`,
+SHA-256
+`ec8e0fd2e94f370e55484d94b316a595428502efd703572a741f2bc9d8d7947d`.
+It restores the preceding 216 MHz Linux scope image. The earliest pre-Linux
+backup below restores the state from before native-Linux work.
 The earliest pre-Linux full-bank backup is
 `output-qspi/hardware-backup/qspi-before-linux-20260813T020133Z.bin`, SHA-256
 `dc370faee88fc88cab1bf23ed1ecac90fd2e1c9d9b17bc42b967183b0225a753`.
@@ -252,9 +286,10 @@ SHA-256
 Prefer the engine-specific verified launcher above unless byte-for-byte
 restoration is required.
 
-For the SD card, no rewrite is needed to return to the LXP hammer: leave the
-data-only FAT partition intact and let LXP mount it as `/data`. There is no
-whole-device image from before this card was provisioned, so deletion of the
-partition cannot be exactly reversed. Any future repartition, format, or
-whole-device write must begin with `lsblk`, an exact-device backup, unmount,
-and explicit user confirmation.
+The SD partition layout does not need to change to return to LXP, but the
+current FAT allocation error must be repaired before either system uses it for
+a valid benchmark. Do not let a benchmark write the currently inconsistent
+volume. There is no whole-device image from before this card was provisioned,
+so deletion of the partition cannot be exactly reversed. Any repair,
+repartition, format, or whole-device write must begin with exact-device
+identification and backup, unmount, and explicit user confirmation.

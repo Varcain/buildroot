@@ -1,6 +1,30 @@
 # Native Linux versus LXP + oveRTOS
 
-## Accepted native result
+## Current parity-closure status
+
+The current image closes the XIP reset, SD-clock, and physical latency-path
+gaps. It boots Linux 5.15.211 deterministically at 216 MHz from QSPI, requests
+a 2 MHz SD clock (1.95 MHz actual), and continuously generates the same scope
+signals as LXP: Arduino D3/PB4/TIM3_CH1 is a hardware 1 kHz reference with a
+50 us high pulse, while the priority-99 Linux kernel response thread raises
+Arduino D4/PG7 around the identical 512-iteration calculation.
+
+The definitive parity run is not yet admissible. The existing FAT data volume
+reports an allocation entry beyond EOF and Linux remounts it read-only before
+the workload starts. Repairing the card is intentionally waiting for explicit
+approval. No USB oscilloscope was enumerated, so the D3/D4 instrument capture
+also remains to be attached. Exact current state and artifact hashes are in
+`parity-status-20260814.json`.
+
+A 300-second 216 MHz physical-scope diagnostic completed the SQL, network,
+LVGL, and scope workloads before the 2 MHz change. It recorded 147 SQLite
+transactions, 19,267,584 network bytes, 55 active LVGL samples, 302,367 scope
+releases, 276,791 executions, and 25,575 misses. Its observer triggered one
+OOM before the measurement boundary and its old scope-read timestamp included
+capture delay, so it is evidence of end-to-end operation, not an accepted
+comparison result. Both harness defects are fixed in commit `540362df91`.
+
+## Historical accepted native result
 
 The native Linux shell workload passed on hardware on 2026-08-14. The exact
 machine-readable result is:
@@ -31,9 +55,9 @@ for the run. The final source changes are committed separately after hardware
 validation.
 
 Root mounted read-only at 2.657 s with 6,712 KiB of 8 MiB reported available
-by the kernel; Ethernet linked at 6.108 s. The first XIP handoff after QSPI
-programming stalled at `Starting kernel ...`; a second ST-LINK reset booted
-successfully. This remains an unresolved boot gap.
+by the kernel; Ethernet linked at 6.108 s. This historical image had an
+alternating warm-reset failure. The current early-XIP stack-protector fix
+removes that failure and has passed consecutive warm boots.
 
 ## Five-minute measurements
 
@@ -89,20 +113,20 @@ After the latency duration ended, lvmusic accounted for approximately 79%.
 
 | Gap | Likely bias | Consequence |
 | --- | --- | --- |
-| Native Linux SD cap is 24 MHz; the historical comparison is explicitly 2 MHz and the primary reference JSON does not attest its clock | Linux for FAT throughput | SQLite/network/display contention is not an apples-to-apples storage result. A Linux 2 MHz rerun is required. |
+| Current Linux SD cap is 2 MHz and hardware reports 1.95 MHz; the selected historical LXP set is 2 MHz | Small residual, indeterminate | The former 24 MHz Linux-favouring clock gap is closed; controller rounding is documented. |
 | LXP uses DMA2D draw and framebuffer blit; Linux uses software LVGL drawing and fbdev `pwrite` | LXP | Linux spends much more CPU and wall time rendering/flushing. |
 | Linux syscalls are native; LXP crosses its guest/personality/coordinator path | Linux | Syscall-heavy work may look better on Linux. |
 | Both roots use QSPI and data uses SD/FAT, but Linux uses XIP CramFS while LXP uses its personality CPIO/rootfs path | Indeterminate | Root instruction/data fetch and cache pressure differ even though neither root writes SD. |
-| Linux uses PL180 PIO at 24 MHz; LXP storage engines use different SDMMC/DMA and transfer policies | Indeterminate, usually Linux for clock | Block timing and CPU cost are not driver-identical. |
-| Linux latency is `CLOCK_MONOTONIC` timer-to-userspace SCHED_FIFO; oveRTOS is TIM3 hardware release through IRQ/event dispatch to a critical host task with CH1/CH2 | Incomparable | Do not compare the numerical latency rows as one physical quantity. |
-| Linux is `PREEMPT_NONE`; oveRTOS schedules the response at critical priority | LXP for Linux dispatch tails | The Linux baseline misses 8.30% of releases. A `CONFIG_PREEMPT` experiment must be a distinct result. |
+| Linux uses PL180 PIO; LXP storage engines use different SDMMC/DMA and transfer policies | Indeterminate | Bus clock and FAT are aligned, but block timing and CPU cost remain driver-specific. |
+| Both systems use TIM3/PB4 CH1 and PG7 CH2 with the same timer phase and calculation; Linux uses a priority-99 kernel thread while oveRTOS uses its portable critical host task | Indeterminate | The physical quantity is now aligned, but the scheduler abstraction being measured remains intentionally system-native. |
+| Linux baseline is `PREEMPT_NONE`; oveRTOS schedules the response at critical priority | LXP for Linux dispatch tails | Report baseline first. The separate `CONFIG_PREEMPT` profile is implemented and configuration-validated, but still needs its own hardware run. |
 | Linux drives Play through uinput while LXP writes its extended input node | None expected | Both reached the active player scene, but injection paths differ. |
 | Linux keeps SQLite in one process with a fixed MEMSYS5 heap; the reference shell uses its established personality-side execution path | Indeterminate | SQL, durability, transaction boundaries, and validations match, but process/allocation overhead does not. |
 | Host SSH agent was absent | None to workload | Serial captured the run; Dropbear jump-host administration was configured but not authenticated in this session. |
-| First XIP handoff needs a second ST-LINK reset | Linux availability disadvantage | It does not affect the timed workload but prevents claiming unattended cold boot. |
+| The data card currently has a FAT allocation inconsistency | Neither implementation | No new comparison is valid until an approved repair and read-only integrity check succeed. |
+| No oscilloscope instrument is attached/enumerated | Neither implementation | The kernel generates D3/D4 continuously and reports software metrics, but a saved two-channel trace still requires the physical probe. |
 
-The physical TIM3/PB4 1 kHz, 50 us CH1 pulse and PG7 CH2 response driver was
-not implemented. TIM3 is disabled and PB4/PG7 are not claimed in the final
-device tree, but a live ownership audit and safe kernel implementation remain
-required. Until then, the Linux latency result is explicitly a weaker
-timer-to-userspace scheduling measurement, not an oveRTOS scope replacement.
+The old numerical table above remains a historical software-timer/24 MHz
+result and must not be relabelled. The next table must be regenerated only
+from a clean five-minute 2 MHz run using `/proc/rt_scope`, followed by the
+separately identified PREEMPT run.
