@@ -69,6 +69,15 @@ Overall sampled CPU busy time was 100%. The scope thread accounted for 41.97%,
 lvmusic 28.37%, SQLite 4.14%, and the resident runner 3.76%; the terminated
 network child and interrupt work explain part of the remainder.
 
+A later reboot exposed a pre-existing primary boot dirty flag even though the
+accepted run and database validation passed. With `/data` unmounted, a full
+bounded-memory dosfstools precheck found only that flag and the intentionally
+different inactive FAT. The in-place active-FAT1 repair was followed by a full
+read-only check (`7 files, 35/1948688 clusters`, return code zero), a clean boot
+without the FAT warning, a read-write VFAT mount, and SQLite integrity `ok`
+with 128 live rows and metadata 664. The checker and matching libc were staged
+in RAM; no QSPI operation was performed.
+
 ## Physical latency contract
 
 Both systems generate the same two-channel physical contract:
@@ -102,7 +111,7 @@ evidence.
 | Linux uses a FIFO kernel thread on `PREEMPT_NONE`; oveRTOS uses a critical host task | LXP for Linux tails | The pins and calculation match, but the scheduler objects remain system-native. |
 | Linux uses a persistent fixed-heap SQLite worker | Indeterminate | SQL, durability, transaction boundaries, and validation match, but allocation/process overhead does not. |
 | No instrument trace is archived | None | Software counters and pin generation are complete; an external CH1/CH2 capture remains physical evidence. |
-| Pi local SSH rejects the available agent key | None | Serial produced the accepted result; SSH administration needs a Pi `authorized_keys` update, not a Linux/QSPI change. |
+| Pi-to-board Dropbear stream corrupts after negotiation | None | The odroid-resident key reaches the Pi and ICMP to the board is clean, but board administration remains on proven serial. |
 
 The repaired FAT blocker, 24 MHz Linux storage advantage, software-only
 latency measurement, XIP warm-reset failure, and missing D3/D4 signal generator

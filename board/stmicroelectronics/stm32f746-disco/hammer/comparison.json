@@ -64,6 +64,16 @@
       "write_ms": 1267376,
       "mounted_vfat_rw_before_and_after": true
     },
+    "post_run_storage_proof": {
+      "repair": "RAM-staged dosfstools 4.2; active FAT1 only; no QSPI write",
+      "final_fsck_rc": 0,
+      "final_fsck_summary": "7 files, 35/1948688 clusters",
+      "clean_reboot_warning_absent": true,
+      "mounted_vfat_rw": true,
+      "sqlite_integrity": "ok",
+      "sqlite_live_rows": 128,
+      "sqlite_meta": 664
+    },
     "latency": {
       "measurement": "TIM3/PB4 hardware release to SCHED_FIFO kernel thread/PG7",
       "physical_reference": true,
@@ -206,12 +216,12 @@
     {
       "id": "administrative-ssh",
       "bias": "none",
-      "detail": "the Pi is reachable, but its local SSH daemon rejects the available agent key; serial captured the accepted run"
+      "detail": "the odroid-resident key reaches the Pi and Pi-to-board ICMP is clean, but Dropbear's encrypted stream corrupts after negotiation; serial captured the accepted run"
     }
   ],
   "remaining": [
     "capture and archive an external two-channel oscilloscope trace if an instrument interface becomes available",
     "run CONFIG_PREEMPT only as a separately identified optional follow-up; it is not part of the requested PREEMPT_NONE baseline",
-    "authorize the available SSH agent key on the Pi if jump-host administration is required"
+    "diagnose Pi-to-board Dropbear encrypted-stream corruption only if SSH administration is required"
   ]
 }

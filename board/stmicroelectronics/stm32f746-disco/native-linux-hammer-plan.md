@@ -56,16 +56,20 @@ requests 2 MHz and the driver reports 1.95 MHz actual. The explicitly
 authorized in-place FAT1 repair, reversible write test, 30-second smoke, and
 accepted 300-second run all pass. That baseline records 83 SQLite transactions,
 15,597,568 network bytes, 57 active LVGL samples, and the complete physical
-scope distribution. A separate `CONFIG_PREEMPT` follow-up profile has passed
-Kconfig validation but has not replaced the requested baseline.
+scope distribution. A post-run, RAM-staged dosfstools pass cleared the remaining
+primary boot dirty flag without writing QSPI; the full final audit and clean
+reboot pass, and the retained SQLite database remains valid. A separate
+`CONFIG_PREEMPT` follow-up profile has passed Kconfig validation but has not
+replaced the requested baseline.
 
 Phase 8 is complete as a qualified comparison. The primary FreeRTOS + LXP
 reference matches the workload contract, while rendering, SD transfer engine,
-root format, and scheduler-object differences remain explicit. The Pi proxy
-and SSH agent are now visible, but the Pi's local daemon rejects the available
-key, so serial remains the proven administrative and capture path. No USB or
-SCPI oscilloscope interface is enumerated; both D3/D4 waveforms are generated,
-but a saved two-channel instrument trace remains external evidence.
+root format, and scheduler-object differences remain explicit. The
+odroid-resident key reaches the Pi and reproduces the accepted stream metrics.
+Pi-to-board ICMP passes, but Dropbear's encrypted stream corrupts after
+negotiation, so serial remains the proven board-administration and capture path.
+No USB or SCPI oscilloscope interface is enumerated; both D3/D4 waveforms are
+generated, but a saved two-channel instrument trace remains external evidence.
 
 ## Phases and acceptance gates
 
@@ -247,6 +251,9 @@ XIP image and matching internal-flash U-Boot have now been programmed only
 after exact backups and readback verification.  Before SD imaging, show `lsblk -o
 NAME,PATH,SIZE,MODEL,TRAN,MOUNTPOINTS`, resolve one exact removable whole-disk
 path, and obtain explicit user confirmation before unmounting or using `dd`.
+Runtime scripts and maintenance tools should be staged through `/tmp` or
+`/data`; do not repeat a QSPI program/verify cycle unless a changed booted
+kernel, device tree, or root filesystem is actually required.
 
 Flashing native U-Boot changes only STM32 internal flash.  Restore the intended
 oveRTOS engine only after verifying its artifact, for example:
@@ -266,8 +273,9 @@ The exact internal-flash backup made in the same session is
 (SHA-256 `1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c`).
 The regular verified oveRTOS flash launchers and LXP QSPI programmer are the
 preferred personality restoration path and are listed in `hammer/README.md`.
-The SD card is a data-only MBR/FAT card. Its selected FAT1 passes a read-only
-check and remained read-write through the accepted benchmark. No whole-device
-pre-format image exists, so byte-exact recovery of content that predated
-provisioning is impossible; any future format or repartition still requires
-exact-device identification, backup, and explicit user approval.
+The SD card is a data-only MBR/FAT card. Its selected FAT1 passes a full
+read-only check (`7 files, 35/1948688 clusters`), mounts without a dirty-volume
+warning, and retained the accepted database through the repair and reboot. No
+whole-device pre-format image exists, so byte-exact recovery of content that
+predated provisioning is impossible; any future format or repartition still
+requires exact-device identification, backup, and explicit user approval.

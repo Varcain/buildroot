@@ -10,8 +10,8 @@ The current hardware closure status is machine-readable in
 the in-place FAT repair is complete, sustained Linux writes pass, and the
 physical D3/D4 latency driver is live. The `CONFIG_PREEMPT_NONE` five-minute
 run passes the full contract. Remaining gaps are comparison qualifications,
-an external oscilloscope trace, optional `CONFIG_PREEMPT` follow-up, and Pi SSH
-key authorization; none blocks the accepted baseline.
+an external oscilloscope trace, optional `CONFIG_PREEMPT` follow-up, and the
+Pi-to-board Dropbear encrypted-stream fault; none blocks the accepted baseline.
 
 The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
 flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
@@ -96,12 +96,28 @@ older SD-root layout. The current card is `/dev/mmcblk0p1`, a 14.9 GiB
 data-only FAT32 partition, at an actual 1.95 MHz in PIO mode. An explicitly
 authorized in-place recovery selected FAT1 through standard FAT32 ExtFlags,
 repaired it with the bounded-memory maintenance image, and did not format or
-repartition the card. A final read-only check reports `7 files, 10/1948688
-clusters`; a reversible 256 KiB create/checksum/remount/delete test and the
-five-minute benchmark both left VFAT mounted read-write. Evidence is under
-`output-hammer-qspi-xip-maintenance/logs/`. Any future format, repartition, or
-whole-device image still requires exact-device discovery, backup, and explicit
-confirmation.
+repartition the card. After the accepted run, Linux still found the primary
+boot dirty byte set (`65:01/00` versus the backup). A compact dosfstools 4.2
+checker and matching libc were staged in `/tmp` through the Pi, so closing the
+flag required no QSPI update. The full precheck found no chain or directory
+damage; the repair touched active FAT1 only. The final read-only check reports
+`7 files, 35/1948688 clusters` with return code zero. The next boot mounted
+VFAT read-write without the dirty-volume warning, and the retained database
+reported integrity `ok`, 128 live rows, and metadata 664. A reversible 256 KiB
+create/checksum/remount/delete test and the five-minute benchmark also pass.
+Evidence is under `output-hammer-qspi-xip-maintenance/logs/`. Any future
+format, repartition, or whole-device image still requires exact-device
+discovery, backup, and explicit confirmation.
+
+BusyBox has no FAT consistency checker. The maintenance profile therefore
+enables dosfstools `fsck.fat`, disables its large static iconv tables, and uses
+an 8,192-entry bounded ownership table. A clean build produced an 80,764-byte
+checker and a 1,761,280-byte CramFS; moving the libiconv dependency under the
+disabled charset option removed about 930 KiB of unused target payload.
+Building or RAM-staging these files does
+not program QSPI. Prefer `/tmp` or `/data` staging for runtime scripts and
+diagnostics; reprogram QSPI only when a changed kernel, device tree, or rootfs
+must become the booted artifact.
 
 ## Flash QSPI XIP, U-Boot, and capture the boot
 
@@ -169,13 +185,15 @@ same function's epilogue. Compiling only that early inflater without stack
 protection fixed the false panic. Consecutive Linux warm reboots and an
 OpenOCD reset now boot without a retry; see
 `output-hammer-qspi-xip/logs/native-linux-216mhz-consecutive-boot.log` and the
-current `native-linux-216mhz-2mhz-final-boot-identity.log`. The current host
-session exposes an SSH agent and reaches the configured proxy, but the Pi's
-local SSH daemon rejects that key for `varcain@192.168.1.12`. Ethernet traffic
-to the already running Pi stream server was verified by the complete benchmark
-stream. Serial remains the proven administrative and capture path until the
-public key is authorized on the Pi; no password is embedded in the image,
-scripts, or logs.
+current `native-linux-216mhz-2mhz-final-boot-identity.log`. The `pi` alias
+identifies `varcain@192.168.1.12` through `odroid`. The local agent key is
+rejected on the second hop, but entering through `ssh odroid` and using
+odroid's resident key reaches the Pi. That route reproduced the accepted
+`/metrics` values, and Pi-to-board ICMP passes without interface errors.
+Dropbear on the STM32 completes negotiation but its only offered
+`chacha20-poly1305` stream then reports a corrupted packet. Serial therefore
+remains the proven board-administration and capture path; no password is
+embedded in the image, scripts, or logs.
 
 For reliable automation over the small UART FIFO, use the paced runner and
 keep the password outside the command line:

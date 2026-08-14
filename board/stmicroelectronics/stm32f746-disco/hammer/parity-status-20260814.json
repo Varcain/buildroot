@@ -1,6 +1,6 @@
 {
   "status": "BASELINE_PASS_WITH_DOCUMENTED_PARITY_GAPS",
-  "captured_at": "2026-08-14T17:13:57Z",
+  "captured_at": "2026-08-14T18:00:44Z",
   "source_branch": "linux-kernel-hammer-poc",
   "baseline_scheduler": "CONFIG_PREEMPT_NONE",
   "board": {
@@ -53,10 +53,19 @@
     "consistent": true,
     "mounted_rw_before_and_after_benchmark": true,
     "repair": {
-      "method": "in-place low-memory fsck using explicitly selected active FAT1; no format",
-      "final_read_only_check": "/dev/mmcblk0p1: 7 files, 10/1948688 clusters",
+      "method": "in-place dosfstools 4.2 low-memory fsck using explicitly selected active FAT1; no format or repartition",
+      "execution": "checker and matching uClibc staged in /tmp from the Pi; no QSPI write",
+      "checker_sha256": "a58139bd5d81f2d9de56095a09013808943d11d4cccc402cea42617c587c7b7f",
+      "pre_repair_check": "primary/backup byte 65 was 01/00; dirty bit set; 7 files, 35/1948688 clusters",
+      "pre_repair_check_rc": 1,
+      "repair_rc": 1,
+      "repair_rc_meaning": "filesystem corrected",
+      "final_read_only_check": "/dev/mmcblk0p1: 7 files, 35/1948688 clusters",
       "reversible_file_test": "256 KiB create/checksum/remount/delete passed",
-      "final_fsck_rc": 0
+      "final_fsck_rc": 0,
+      "clean_reboot_warning_absent": true,
+      "post_reboot_mount": "vfat rw",
+      "post_reboot_sqlite": "integrity ok; live rows 128; metadata 664"
     }
   },
   "physical_scope": {
@@ -105,9 +114,26 @@
     "host_alias": "pi",
     "network_reachable": true,
     "proxy_reachable": true,
-    "agent_key_available": true,
-    "local_pi_accepts_agent_key": false,
-    "workload_impact": "none; the serial run completed against the existing Pi stream server"
+    "odroid_resident_key_route": "ssh odroid, then ssh varcain@192.168.1.12",
+    "metrics_match_accepted_result": true,
+    "pi_to_board_ping": "3/3 received, 0% loss",
+    "pi_to_board_ssh": "Dropbear handshake succeeds but the chacha20-poly1305 stream reports a corrupted packet",
+    "workload_impact": "none; the accepted serial run completed against the Pi stream server"
+  },
+  "verification_build": {
+    "output": "/tmp/hirioic-hammer-source-verify",
+    "status": "PASS",
+    "profile": "stm32f746_disco_hammer_qspi_xip_maintenance_defconfig",
+    "qspi_programmed": false,
+    "rootfs_cramfs_bytes": 1761280,
+    "rootfs_cramfs_sha256": "e202bbcae7a2ef1ab1a7a7488f86dc0678e4c1e83d3863ee41e2b20540df7783",
+    "target_libiconv_packaged": false,
+    "xip_kernel_bytes": 2913814,
+    "xip_kernel_sha256": "646df47b8e4f3c898cf0094f51821edbc1e11bb4b21e673a8d8141594aa96390",
+    "device_tree_sha256": "c3416eea2021bf580c81d862e650c010a0e40999cdd1ab396a5ce9dab5bd8972",
+    "fsck_fat_bytes": 80764,
+    "fsck_fat_sha256": "ea0ddea3bb9ba8f9584aff5f40ba8b15b68d47f9ac950d7977d9f356258ae75e",
+    "scheduler": "CONFIG_PREEMPT_NONE"
   },
   "preempt_follow_up": {
     "profile": "stm32f746_disco_hammer_qspi_xip_preempt_defconfig",
@@ -120,6 +146,11 @@
     "boot_identity": "output-hammer-qspi-xip-maintenance/logs/native-linux-pio-poll-scope-v5-full-boot.log",
     "fat_repair": "output-hammer-qspi-xip-maintenance/logs/fat1-single-active-repair.log",
     "fat_final_audit": "output-hammer-qspi-xip-maintenance/logs/fat-rw-sustained-pio-poll-v4.log",
+    "post_benchmark_fat_precheck": "output-hammer-qspi-xip-maintenance/logs/post-final300-fat-valid-readonly-audit-v2.log",
+    "post_benchmark_fat_repair": "output-hammer-qspi-xip-maintenance/logs/post-final300-fat-inplace-repair.log",
+    "post_benchmark_fat_audit": "output-hammer-qspi-xip-maintenance/logs/post-final300-fat-postrepair-audit.log",
+    "post_benchmark_clean_boot": "output-hammer-qspi-xip-maintenance/logs/post-final300-clean-fat-reboot-v2.log",
+    "post_benchmark_storage_proof": "output-hammer-qspi-xip-maintenance/logs/post-final300-final-storage-proof.log",
     "smoke_result": "output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-smoke-30s-20260814/result.json",
     "accepted_result": "output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-final-300s-v2-20260814/result.json",
     "comparison": "board/stmicroelectronics/stm32f746-disco/hammer/comparison.json"
@@ -144,6 +175,6 @@
   "remaining": [
     "archive an external two-channel scope trace if an instrument interface is supplied",
     "optionally run the separately identified CONFIG_PREEMPT profile; avoid its QSPI rewrite unless explicitly prioritized",
-    "authorize the available agent key on the Pi if SSH administration is needed"
+    "diagnose the Pi-to-board Dropbear encrypted-stream corruption only if SSH administration is required; serial is proven"
   ]
 }
