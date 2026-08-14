@@ -8,14 +8,17 @@ interrupt-driven refills vulnerable to TX underrun under concurrent display
 and network load.
 
 Allow affected boards that already bound requests to one sector to poll the
-PIO IRQ service until the complete request has entered the FIFO. This keeps
-the 2 MHz, four-bit card-bus contract and avoids both controller behaviors at
-the explicit cost of holding the CPU during each bounded write.
+PIO IRQ service until the complete request has entered the FIFO. Keep that
+bounded loop non-preemptible: on PREEMPT_RT the MMCI IRQ is threaded and a
+higher-priority task can otherwise starve the 128-byte FIFO long enough to
+underrun it. This keeps the 2 MHz, four-bit card-bus contract and avoids both
+controller behaviors at the explicit cost of holding the CPU during each
+bounded write.
 
 Upstream-status: Inappropriate [board-specific stability quirk]
 ---
- drivers/mmc/host/mmci.c | 36 ++++++++++++++++++++++++++++++++++++
- 1 file changed, 36 insertions(+)
+ drivers/mmc/host/mmci.c | 38 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 38 insertions(+)
 
 diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
 --- a/drivers/mmc/host/mmci.c
@@ -29,7 +32,7 @@ diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
  static void mmci_start_data(struct mmci_host *host, struct mmc_data *data)
  {
  	struct variant_data *variant = host->variant;
-@@ -1216,9 +1218,43 @@ static void mmci_start_data(struct mmci_host *host, struct mmc_data *data)
+@@ -1216,9 +1218,45 @@ static void mmci_start_data(struct mmci_host *host, struct mmc_data *data)
  		irqmask = MCI_TXFIFOHALFEMPTYMASK;
  	}
  
@@ -59,6 +62,7 @@ diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
 +		u32 error_mask = variant->start_err | MCI_DATACRCFAIL |
 +				 MCI_DATATIMEOUT | MCI_TXUNDERRUN;
 +
++		preempt_disable();
 +		while (host->size) {
 +			u32 status = readl(base + MMCISTATUS);
 +
@@ -69,6 +73,7 @@ diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
 +			else
 +				cpu_relax();
 +		}
++		preempt_enable();
 +	}
  }
  
