@@ -261,8 +261,9 @@
 	/* Match the validated one-sector STM32F7 SDMMC stability policy. */
 	st,force-single-block;
 	/* Match oveRTOS: SDMMC1 RX/TX use DMA2 streams 3/6, channel 4. */
-	dmas = <&dma2 3 4 0x30400 0x3>,
-	       <&dma2 6 4 0x30400 0x3>;
+	/* Direct mode forces single DMA beats instead of buffering in the DMA FIFO. */
+	dmas = <&dma2 3 4 0x30400 0x4>,
+	       <&dma2 6 4 0x30400 0x4>;
 	dma-names = "rx", "tx";
 };
 
