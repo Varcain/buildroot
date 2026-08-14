@@ -173,7 +173,7 @@ diff --git a/src/fat.c b/src/fat.c
 +	}
 +    }
 +
-+    fs->owner_capacity = 65536;
++    fs->owner_capacity = 8192;
 +    fs->owner_table = alloc(fs->owner_capacity * sizeof(*fs->owner_table));
 +    memset(fs->owner_table, 0,
 +	   fs->owner_capacity * sizeof(*fs->owner_table));
@@ -267,7 +267,7 @@ diff --git a/src/fat.c b/src/fat.c
 +		return;
 +	    }
 +	}
-+	die("Low-memory owner table is full (more than 65536 referenced clusters).");
++	die("Low-memory owner table is full (more than 8192 referenced clusters).");
 +    }
      if (fs->cluster_owner == NULL)
  	die("Internal error: attempt to set owner in non-existent table");

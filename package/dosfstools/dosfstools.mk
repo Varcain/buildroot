@@ -20,9 +20,13 @@ else
 DOSFSTOOLS_CONF_OPTS += --without-udev
 endif
 
+ifeq ($(BR2_PACKAGE_DOSFSTOOLS_ICONV),y)
 ifneq ($(BR2_ENABLE_LOCALE),y)
 DOSFSTOOLS_CONF_OPTS += LIBS="-liconv"
 DOSFSTOOLS_DEPENDENCIES += libiconv
+endif
+else
+DOSFSTOOLS_CONF_OPTS += --without-iconv
 endif
 
 ifeq ($(BR2_PACKAGE_DOSFSTOOLS_FATLABEL),y)

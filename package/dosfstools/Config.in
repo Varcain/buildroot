@@ -9,6 +9,15 @@ config BR2_PACKAGE_DOSFSTOOLS
 
 if BR2_PACKAGE_DOSFSTOOLS
 
+config BR2_PACKAGE_DOSFSTOOLS_ICONV
+	bool "extended iconv charset conversion"
+	default y
+	help
+	  Enable iconv-backed conversion between DOS code pages and the
+	  current locale. Disable this on very small no-MMU systems to use
+	  dosfstools' built-in CP850 conversion and avoid linking the large
+	  static iconv conversion tables.
+
 config BR2_PACKAGE_DOSFSTOOLS_FATLABEL
 	bool "fatlabel"
 	help
