@@ -1,0 +1,251 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] mmc: mmci: keep bounded PIO hard on PREEMPT_RT
+
+The STM32F746 board's opt-in one-sector PIO workaround depends on the
+complete command and FIFO service path retaining hard-IRQ serialization.
+Making only the polling loop non-preemptible, or raising the forced IRQ
+thread to FIFO priority 98, still produces corrupted writes and MMCI I/O
+errors under PREEMPT_RT.
+
+For devices carrying the existing st,poll-write-fifo property, keep both
+MMCI IRQs unthreaded under PREEMPT_RT and protect their state with a raw
+spin lock. Keep the normal sleeping spin lock and forced IRQ threading for
+every other MMCI device. This deliberately restores the non-RT execution
+contract for at most one 512-byte request; the physical RT scope measures
+the resulting interrupt-off latency.
+
+Upstream-status: Inappropriate [board-specific stability quirk]
+---
+ drivers/mmc/host/mmci.c | 74 ++++++++++++++++++++++++++++++++---------
+ drivers/mmc/host/mmci.h |  2 ++
+ 2 files changed, 60 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
+--- a/drivers/mmc/host/mmci.c
++++ b/drivers/mmc/host/mmci.c
+@@ -51,6 +51,38 @@ static void ux500v2_variant_init(struct mmci_host *host);
+ 
+ static unsigned int fmax = 515633;
+ 
++#define mmci_host_lock(host) \
++	do { \
++		if ((host)->hard_irq) \
++			raw_spin_lock(&(host)->raw_lock); \
++		else \
++			spin_lock(&(host)->lock); \
++	} while (0)
++
++#define mmci_host_unlock(host) \
++	do { \
++		if ((host)->hard_irq) \
++			raw_spin_unlock(&(host)->raw_lock); \
++		else \
++			spin_unlock(&(host)->lock); \
++	} while (0)
++
++#define mmci_host_lock_irqsave(host, flags) \
++	do { \
++		if ((host)->hard_irq) \
++			raw_spin_lock_irqsave(&(host)->raw_lock, flags); \
++		else \
++			spin_lock_irqsave(&(host)->lock, flags); \
++	} while (0)
++
++#define mmci_host_unlock_irqrestore(host, flags) \
++	do { \
++		if ((host)->hard_irq) \
++			raw_spin_unlock_irqrestore(&(host)->raw_lock, flags); \
++		else \
++			spin_unlock_irqrestore(&(host)->lock, flags); \
++	} while (0)
++
+ static struct variant_data variant_arm = {
+ 	.fifosize		= 16 * 4,
+ 	.fifohalfsize		= 8 * 4,
+@@ -339,10 +371,10 @@ static int mmci_card_busy(struct mmc_host *mmc)
+ 	unsigned long flags;
+ 	int busy = 0;
+ 
+-	spin_lock_irqsave(&host->lock, flags);
++	mmci_host_lock_irqsave(host, flags);
+ 	if (readl(host->base + MMCISTATUS) & host->variant->busy_detect_flag)
+ 		busy = 1;
+-	spin_unlock_irqrestore(&host->lock, flags);
++	mmci_host_unlock_irqrestore(host, flags);
+ 
+ 	return busy;
+ }
+@@ -1648,7 +1680,7 @@ static irqreturn_t mmci_irq(int irq, void *dev_id)
+ 	struct mmci_host *host = dev_id;
+ 	u32 status;
+ 
+-	spin_lock(&host->lock);
++	mmci_host_lock(host);
+ 	host->irq_action = IRQ_HANDLED;
+ 
+ 	do {
+@@ -1691,7 +1723,7 @@ static irqreturn_t mmci_irq(int irq, void *dev_id)
+ 
+ 	} while (status);
+ 
+-	spin_unlock(&host->lock);
++	mmci_host_unlock(host);
+ 
+ 	return host->irq_action;
+ }
+@@ -1713,7 +1745,7 @@ static irqreturn_t mmci_irq_thread(int irq, void *dev_id)
+ 		reset_control_deassert(host->rst);
+ 	}
+ 
+-	spin_lock_irqsave(&host->lock, flags);
++	mmci_host_lock_irqsave(host, flags);
+ 	writel(host->clk_reg, host->base + MMCICLOCK);
+ 	writel(host->pwr_reg, host->base + MMCIPOWER);
+ 	writel(MCI_IRQENABLE | host->variant->start_err,
+@@ -1721,7 +1753,7 @@ static irqreturn_t mmci_irq_thread(int irq, void *dev_id)
+ 
+ 	host->irq_action = IRQ_HANDLED;
+ 	mmci_request_end(host, host->mrq);
+-	spin_unlock_irqrestore(&host->lock, flags);
++	mmci_host_unlock_irqrestore(host, flags);
+ 
+ 	return host->irq_action;
+ }
+@@ -1739,7 +1771,7 @@ static void mmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 		return;
+ 	}
+ 
+-	spin_lock_irqsave(&host->lock, flags);
++	mmci_host_lock_irqsave(host, flags);
+ 
+ 	host->mrq = mrq;
+ 
+@@ -1755,7 +1787,7 @@ static void mmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
+ 	else
+ 		mmci_start_command(host, mrq->cmd, 0);
+ 
+-	spin_unlock_irqrestore(&host->lock, flags);
++	mmci_host_unlock_irqrestore(host, flags);
+ }
+ 
+ static void mmci_set_max_busy_timeout(struct mmc_host *mmc)
+@@ -1870,7 +1902,7 @@ static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ 	}
+ 	host->clock_cache = ios->clock;
+ 
+-	spin_lock_irqsave(&host->lock, flags);
++	mmci_host_lock_irqsave(host, flags);
+ 
+ 	if (host->ops && host->ops->set_clkreg)
+ 		host->ops->set_clkreg(host, ios->clock);
+@@ -1886,7 +1918,7 @@ static void mmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
+ 
+ 	mmci_reg_delay(host);
+ 
+-	spin_unlock_irqrestore(&host->lock, flags);
++	mmci_host_unlock_irqrestore(host, flags);
+ }
+ 
+ static int mmci_get_cd(struct mmc_host *mmc)
+@@ -2034,6 +2066,7 @@ static int mmci_probe(struct amba_device *dev,
+ 	struct variant_data *variant = id->data;
+ 	struct mmci_host *host;
+ 	struct mmc_host *mmc;
++	unsigned long irq_flags = IRQF_SHARED;
+ 	int ret;
+ 
+ 	/* Must have platform data or Device Tree. */
+@@ -2061,6 +2094,14 @@ static int mmci_probe(struct amba_device *dev,
+ 	if (ret)
+ 		goto host_free;
+ 
++	if (IS_ENABLED(CONFIG_PREEMPT_RT) && np &&
++	    of_property_read_bool(np, "st,poll-write-fifo")) {
++		host->hard_irq = true;
++		irq_flags |= IRQF_NO_THREAD;
++		dev_info(&dev->dev,
++			 "using hard IRQ and raw lock for bounded PIO writes\n");
++	}
++
+ 	/*
+ 	 * Some variant (STM32) doesn't have opendrain bit, nevertheless
+ 	 * pins can be set accordingly using pinctrl
+@@ -2248,6 +2289,7 @@ static int mmci_probe(struct amba_device *dev,
+ 	}
+ 
+ 	spin_lock_init(&host->lock);
++	raw_spin_lock_init(&host->raw_lock);
+ 
+ 	writel(0, host->base + MMCIMASK0);
+ 
+@@ -2274,7 +2316,7 @@ static int mmci_probe(struct amba_device *dev,
+ 	}
+ 
+ 	ret = devm_request_threaded_irq(&dev->dev, dev->irq[0], mmci_irq,
+-					mmci_irq_thread, IRQF_SHARED,
++					mmci_irq_thread, irq_flags,
+ 					DRIVER_NAME " (cmd)", host);
+ 	if (ret)
+ 		goto clk_disable;
+@@ -2283,7 +2325,7 @@ static int mmci_probe(struct amba_device *dev,
+ 		host->singleirq = true;
+ 	else {
+ 		ret = devm_request_irq(&dev->dev, dev->irq[1], mmci_pio_irq,
+-				IRQF_SHARED, DRIVER_NAME " (pio)", host);
++				irq_flags, DRIVER_NAME " (pio)", host);
+ 		if (ret)
+ 			goto clk_disable;
+ 	}
+@@ -2351,7 +2393,7 @@ static void mmci_save(struct mmci_host *host)
+ {
+ 	unsigned long flags;
+ 
+-	spin_lock_irqsave(&host->lock, flags);
++	mmci_host_lock_irqsave(host, flags);
+ 
+ 	writel(0, host->base + MMCIMASK0);
+ 	if (host->variant->pwrreg_nopower) {
+@@ -2361,14 +2403,14 @@ static void mmci_save(struct mmci_host *host)
+ 	}
+ 	mmci_reg_delay(host);
+ 
+-	spin_unlock_irqrestore(&host->lock, flags);
++	mmci_host_unlock_irqrestore(host, flags);
+ }
+ 
+ static void mmci_restore(struct mmci_host *host)
+ {
+ 	unsigned long flags;
+ 
+-	spin_lock_irqsave(&host->lock, flags);
++	mmci_host_lock_irqsave(host, flags);
+ 
+ 	if (host->variant->pwrreg_nopower) {
+ 		writel(host->clk_reg, host->base + MMCICLOCK);
+@@ -2379,7 +2421,7 @@ static void mmci_restore(struct mmci_host *host)
+ 	       host->base + MMCIMASK0);
+ 	mmci_reg_delay(host);
+ 
+-	spin_unlock_irqrestore(&host->lock, flags);
++	mmci_host_unlock_irqrestore(host, flags);
+ }
+ 
+ static int mmci_runtime_suspend(struct device *dev)
+diff --git a/drivers/mmc/host/mmci.h b/drivers/mmc/host/mmci.h
+--- a/drivers/mmc/host/mmci.h
++++ b/drivers/mmc/host/mmci.h
+@@ -395,10 +395,12 @@ struct mmci_host {
+ 	struct mmc_host		*mmc;
+ 	struct clk		*clk;
+ 	u8			singleirq:1;
++	u8			hard_irq:1;
+ 
+ 	struct reset_control	*rst;
+ 
+ 	spinlock_t		lock;
++	raw_spinlock_t		raw_lock;
+ 
+ 	unsigned int		mclk;
+ 	/* cached value of requested clk in set_ios */
+-- 
+2.51.0
