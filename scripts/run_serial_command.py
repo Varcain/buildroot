@@ -26,7 +26,14 @@ def configure(fd):
 
 def paced_write(fd, value, delay):
     for byte in value.encode():
-        os.write(fd, bytes((byte,)))
+        while True:
+            try:
+                os.write(fd, bytes((byte,)))
+                break
+            except BlockingIOError:
+                # ST-LINK VCP can temporarily deassert host-side writable
+                # state while the small target UART FIFO drains.
+                select.select([], [fd], [], 1.0)
         time.sleep(delay)
 
 
@@ -41,6 +48,10 @@ def read_until(fd, stream, captured, patterns, deadline):
         except BlockingIOError:
             continue
         if not chunk:
+            # A VMIN=0 tty may report readable and then return zero bytes.
+            # Without a backoff this loop consumes a host CPU and can delay
+            # effective USB-VCP delivery during large benchmark snapshots.
+            time.sleep(0.01)
             continue
         stream.write(chunk)
         stream.flush()
@@ -62,7 +73,7 @@ def main():
     parser.add_argument("--username", default="root")
     parser.add_argument("--password-env", default="SERIAL_CONSOLE_PASSWORD")
     parser.add_argument("--timeout", type=int, default=1200)
-    parser.add_argument("--character-delay-ms", type=float, default=20.0)
+    parser.add_argument("--character-delay-ms", type=float, default=100.0)
     parser.add_argument(
         "--require-login", action="store_true",
         help="ignore stale shell prompts and wait for a fresh login prompt",
