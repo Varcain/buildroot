@@ -1,0 +1,12 @@
+# This fragment is used only with the exact Linux 5.15.211-rt97 patch.
+# Keep the stock PREEMPT_NONE and generic PREEMPT measurements distinct.
+CONFIG_EXPERT=y
+# CONFIG_PREEMPT_NONE is not set
+# CONFIG_PREEMPT_VOLUNTARY is not set
+# CONFIG_PREEMPT is not set
+CONFIG_PREEMPT_RT=y
+
+# PREEMPT_RT excludes SLOB in 5.15-rt. Select the supported allocator
+# explicitly so Kconfig does not silently choose a different default.
+# CONFIG_SLOB is not set
+CONFIG_SLUB=y
