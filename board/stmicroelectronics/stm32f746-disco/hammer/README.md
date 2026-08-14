@@ -6,11 +6,12 @@ hammer proof of concept.  It deliberately leaves the stock
 acceptance gates are in `../native-linux-hammer-plan.md`.
 
 The current hardware closure status is machine-readable in
-`parity-status-20260814.json`. Native Linux boots deterministically from the
-verified QSPI image and the physical D3/D4 latency driver is live. The next
-admissible five-minute run is blocked by an existing FAT inconsistency on the
-data card; Linux reports an allocation entry beyond EOF and remounts `/data`
-read-only. Do not repair or reformat that card without explicit approval.
+`parity-status-20260814.json`. Native Linux boots deterministically from QSPI,
+the in-place FAT repair is complete, sustained Linux writes pass, and the
+physical D3/D4 latency driver is live. The `CONFIG_PREEMPT_NONE` five-minute
+run passes the full contract. Remaining gaps are comparison qualifications,
+an external oscilloscope trace, optional `CONFIG_PREEMPT` follow-up, and Pi SSH
+key authorization; none blocks the accepted baseline.
 
 The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
 flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
@@ -92,12 +93,15 @@ volatile ramfs at `/data`; the benchmark preflight rejects that fallback.
 For the workload, `/data` must be an explicitly identified VFAT partition.
 The init script accepts partition 1 on a data-only card or partition 2 on the
 older SD-root layout. The current card is `/dev/mmcblk0p1`, a 14.9 GiB
-data-only FAT32 partition, at an actual 1.95 MHz in PIO mode. The 2026-08-14
-parity smoke test found `fat_free_clusters: deleting FAT entry beyond EOF` and
-the kernel changed the mount to read-only. The raw evidence is
-`output-hammer-qspi-xip/logs/native-linux-216mhz-2mhz-scope-smoke-30s-v3.log`.
-Discover and back up the exact device and obtain confirmation before repairing,
-creating, formatting, or imaging any partition.
+data-only FAT32 partition, at an actual 1.95 MHz in PIO mode. An explicitly
+authorized in-place recovery selected FAT1 through standard FAT32 ExtFlags,
+repaired it with the bounded-memory maintenance image, and did not format or
+repartition the card. A final read-only check reports `7 files, 10/1948688
+clusters`; a reversible 256 KiB create/checksum/remount/delete test and the
+five-minute benchmark both left VFAT mounted read-write. Evidence is under
+`output-hammer-qspi-xip-maintenance/logs/`. Any future format, repartition, or
+whole-device image still requires exact-device discovery, backup, and explicit
+confirmation.
 
 ## Flash QSPI XIP, U-Boot, and capture the boot
 
@@ -165,11 +169,13 @@ same function's epilogue. Compiling only that early inflater without stack
 protection fixed the false panic. Consecutive Linux warm reboots and an
 OpenOCD reset now boot without a retry; see
 `output-hammer-qspi-xip/logs/native-linux-216mhz-consecutive-boot.log` and the
-current `native-linux-216mhz-2mhz-final-boot-identity.log`. The host session
-had no SSH agent, so the Pi and jump-host authentication
-checks failed before reaching the board; Ethernet traffic to the already
-running Pi stream server was nevertheless verified by the complete benchmark
-stream. Serial therefore remains the proven administrative access path.
+current `native-linux-216mhz-2mhz-final-boot-identity.log`. The current host
+session exposes an SSH agent and reaches the configured proxy, but the Pi's
+local SSH daemon rejects that key for `varcain@192.168.1.12`. Ethernet traffic
+to the already running Pi stream server was verified by the complete benchmark
+stream. Serial remains the proven administrative and capture path until the
+public key is authorized on the Pi; no password is embedded in the image,
+scripts, or logs.
 
 For reliable automation over the small UART FIFO, use the paced runner and
 keep the password outside the command line:
@@ -211,12 +217,13 @@ JSON.  The validator requires the exact SQLite row/meta/live-row invariants,
 zero SQLite error output, a complete deadline-length stream, enough active
 LVGL samples, and consistent latency release accounting.
 
-The last accepted result is the earlier 24 MHz, software-latency baseline:
-`output-hammer-qspi-xip/hammer-results/native-linux-strict300-embedded-final-300s-20260814/result.json`.
-It is tied to full QSPI image SHA-256
-`4821e9b3c7fff933f86d1a995b92259389c953d516ceaa75c696fff640888ac2`.
-The raw benchmark, full boot, and post-run storage logs sit beside it and are
-listed in `comparison.md`.
+The accepted 2 MHz-profile physical-scope baseline is:
+`output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-final-300s-v2-20260814/result.json`.
+It archives the exact kernel/rootfs Buildroot configurations, Linux, BusyBox,
+U-Boot and LVGL configurations, and hashes the hybrid QSPI deployment rather
+than a stale combined image. The exact raw benchmark and full boot logs are
+under `output-hammer-qspi-xip-maintenance/logs/` and are listed in
+`comparison.md`.
 
 The current latency implementation is a kernel driver with the same physical
 contract as LXP + oveRTOS: TIM3 generates a 1 kHz, 50 us high pulse on Arduino
@@ -286,10 +293,10 @@ SHA-256
 Prefer the engine-specific verified launcher above unless byte-for-byte
 restoration is required.
 
-The SD partition layout does not need to change to return to LXP, but the
-current FAT allocation error must be repaired before either system uses it for
-a valid benchmark. Do not let a benchmark write the currently inconsistent
-volume. There is no whole-device image from before this card was provisioned,
-so deletion of the partition cannot be exactly reversed. Any repair,
-repartition, format, or whole-device write must begin with exact-device
-identification and backup, unmount, and explicit user confirmation.
+The SD partition layout does not need to change to return to LXP. FAT1 is now
+the standard active FAT, passes read-only checking, and survived the Linux
+write test and benchmark. There is no whole-device image from before this card
+was provisioned, so deletion of the partition cannot be exactly reversed. Any
+future repair, repartition, format, or whole-device write must begin with
+exact-device identification and backup, unmount, and explicit user
+confirmation.

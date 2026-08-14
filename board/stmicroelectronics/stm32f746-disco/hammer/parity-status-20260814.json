@@ -1,55 +1,63 @@
 {
-  "status": "BLOCKED_ON_SD_FAT_REPAIR_APPROVAL",
-  "captured_at": "2026-08-14T02:10:00Z",
+  "status": "BASELINE_PASS_WITH_DOCUMENTED_PARITY_GAPS",
+  "captured_at": "2026-08-14T17:13:57Z",
   "source_branch": "linux-kernel-hammer-poc",
-  "source_commit": "ba3714ad0b",
   "baseline_scheduler": "CONFIG_PREEMPT_NONE",
   "board": {
     "model": "STM32F746G-DISCO",
     "system_clock_hz": 216000000,
     "memory_bytes": 8388608,
     "boot": "U-Boot in internal flash; Linux XIP and read-only CramFS in QSPI",
+    "boot_uses_sd": false,
     "boot_retry_required": false,
     "ethernet": "172.1.1.2/24, 100baseT full duplex",
     "framebuffer": "stmdrmfb",
     "touch": "generic ft5x06 (51)"
   },
-  "images": {
-    "qspi_hammer_xip": {
-      "bytes": 16777216,
-      "sha256": "cee17213d4272f0049bb2feb85c19c86ee8a013c6b7f7a667db79022e4c4b635",
-      "programmed_and_verified": true
+  "deployed_images": {
+    "xip_kernel_uimage": {
+      "path": "output-hammer-qspi-xip-maintenance/images/uImage-sd-pio-poll-scope-v5.xip",
+      "qspi_header_address": "0x900fffc0",
+      "qspi_entry_address": "0x90100000",
+      "bytes": 2913880,
+      "sha256": "19524071111b8eb4884a1185b3dde8a96cc17452de6c6a517cd744a10b827e86"
     },
-    "xip_kernel": {
-      "bytes": 2913800,
-      "sha256": "c03f036b18bb5ad8c9f0d69b4a73d235e914640a466b7eb9c0a0efeb35ba9615"
+    "device_tree": {
+      "path": "output-hammer-qspi-xip-maintenance/images/stm32f746-disco-hammer-sd-pio-poll-scope-v5.dtb",
+      "qspi_offset": "0x000e0000",
+      "bytes": 17599,
+      "sha256": "c3416eea2021bf580c81d862e650c010a0e40999cdd1ab396a5ce9dab5bd8972"
     },
     "rootfs_cramfs": {
+      "path": "output-hammer-qspi-xip/images/rootfs.cramfs",
+      "qspi_address": "0x90800000",
       "bytes": 4169728,
       "sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58"
     },
-    "device_tree": {
-      "bytes": 17534,
-      "sha256": "48349edaef58af37774ef5b65a42aa1cc34ec9773f8e4898a62635549b432aa8"
-    },
     "uboot_internal_flash": {
+      "path": "output-hammer-qspi-xip/images/u-boot.bin",
       "bytes": 370888,
       "sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
-    },
-    "embedded_runner_sha256": "1b589ede9baf0f434eee9f34aa18cf0d46c4f31fca0ccedbddd73ffa64258c43"
+    }
   },
   "storage": {
-    "boot_uses_sd": false,
     "data_device": "/dev/mmcblk0p1",
     "data_filesystem": "vfat",
     "data_capacity_gib": 14.9,
     "requested_clock_hz": 2000000,
     "actual_clock_hz": 1950000,
+    "bus_width_bits": 4,
     "driver": "mmci-pl18x PIO",
-    "consistent": false,
-    "kernel_error": "fat_free_clusters: deleting FAT entry beyond EOF",
-    "kernel_action": "Filesystem has been set read-only",
-    "repair_authorized": false
+    "request_limit_bytes": 512,
+    "write_service": "CPU-polled FIFO with hardware flow control disabled for writes",
+    "consistent": true,
+    "mounted_rw_before_and_after_benchmark": true,
+    "repair": {
+      "method": "in-place low-memory fsck using explicitly selected active FAT1; no format",
+      "final_read_only_check": "/dev/mmcblk0p1: 7 files, 10/1948688 clusters",
+      "reversible_file_test": "256 KiB create/checksum/remount/delete passed",
+      "final_fsck_rc": 0
+    }
   },
   "physical_scope": {
     "implemented": true,
@@ -64,64 +72,78 @@
     "work_iterations": 512,
     "calculation": "state = state * 1664525 + 1013904223",
     "matches_lxp_physical_contract": true,
-    "usb_oscilloscope_enumerated": false,
-    "instrument_trace_captured": false
+    "instrument_interface_enumerated": false,
+    "instrument_trace_captured": false,
+    "pin_name_warning": "Arduino D3/D4 are PB4/PG7; they are not MCU PD3/PD4"
   },
-  "diagnostic_300s": {
-    "admissible_comparison": false,
-    "reason": [
-      "used the former 24 MHz SD profile",
-      "pre-boundary diagnostic observer triggered one OOM",
-      "old scope capture timestamp included the proc read delay"
-    ],
-    "sqlite_transactions": 147,
-    "sqlite_rows": 1176,
+  "accepted_300s": {
+    "result_path": "output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-final-300s-v2-20260814/result.json",
+    "serial_path": "output-hammer-qspi-xip-maintenance/logs/native-linux-pio-poll-scope-v5-hammer-final-300s.log",
+    "status": "PASS",
+    "returncode": 0,
+    "sqlite_transactions": 83,
+    "sqlite_rows": 664,
+    "sqlite_meta": 664,
+    "sqlite_live_rows": 128,
     "sqlite_integrity": "ok",
-    "network_bytes": 19267584,
-    "network_elapsed_s": 300.2392483204603,
-    "lvgl_active_samples": 55,
-    "scope_releases": 302367,
-    "scope_executions": 276791,
-    "scope_missed_releases": 25575,
-    "scope_late_finishes": 3616,
-    "scope_dispatch_average_ns": 400630,
+    "sqlite_transactions_per_second": 0.27477074850200284,
+    "network_bytes": 15597568,
+    "network_elapsed_s": 300.3820557836443,
+    "network_mbps": 0.41540611896562646,
+    "lvgl_active_samples": 57,
+    "scope_elapsed_s": 302.40410846,
+    "scope_releases": 302404,
+    "scope_executions": 268598,
+    "scope_missed_releases": 33805,
+    "scope_late_finishes": 5476,
+    "scope_dispatch_average_ns": 448278,
     "scope_dispatch_p99_ceiling_us": 1000,
     "scope_dispatch_p999_ceiling_us": 1000,
-    "scope_dispatch_max_ns": 999889
+    "scope_dispatch_max_ns": 999870
+  },
+  "pi_access": {
+    "host_alias": "pi",
+    "network_reachable": true,
+    "proxy_reachable": true,
+    "agent_key_available": true,
+    "local_pi_accepts_agent_key": false,
+    "workload_impact": "none; the serial run completed against the existing Pi stream server"
   },
   "preempt_follow_up": {
     "profile": "stm32f746_disco_hammer_qspi_xip_preempt_defconfig",
     "config_merge_validated": true,
-    "symbols": [
-      "CONFIG_PREEMPT=y",
-      "CONFIG_PREEMPTION=y",
-      "CONFIG_PREEMPT_RCU=y"
-    ],
-    "hardware_run_complete": false
+    "hardware_run_complete": false,
+    "required_for_baseline": false,
+    "qspi_reprogramming_required": true
   },
   "evidence": {
-    "boot_identity": "output-hammer-qspi-xip/logs/native-linux-216mhz-2mhz-final-boot-identity.log",
-    "consecutive_boot": "output-hammer-qspi-xip/logs/native-linux-216mhz-consecutive-boot.log",
-    "fat_failure": "output-hammer-qspi-xip/logs/native-linux-216mhz-2mhz-scope-smoke-30s-v3.log",
-    "diagnostic_result": "output-hammer-qspi-xip/hammer-results/native-linux-216mhz-scope-diagnostic-300s-20260814/result.json",
-    "diagnostic_serial": "output-hammer-qspi-xip/logs/native-linux-216mhz-hammer-control.log"
+    "boot_identity": "output-hammer-qspi-xip-maintenance/logs/native-linux-pio-poll-scope-v5-full-boot.log",
+    "fat_repair": "output-hammer-qspi-xip-maintenance/logs/fat1-single-active-repair.log",
+    "fat_final_audit": "output-hammer-qspi-xip-maintenance/logs/fat-rw-sustained-pio-poll-v4.log",
+    "smoke_result": "output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-smoke-30s-20260814/result.json",
+    "accepted_result": "output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-final-300s-v2-20260814/result.json",
+    "comparison": "board/stmicroelectronics/stm32f746-disco/hammer/comparison.json"
   },
   "backups": {
-    "qspi_immediately_before_current_profile": {
-      "path": "output-hammer-qspi-xip/hardware-backup/qspi-before-hammer-xip-20260814T011845Z.bin",
-      "bytes": 16777216,
-      "sha256": "ec8e0fd2e94f370e55484d94b316a595428502efd703572a741f2bc9d8d7947d"
+    "rootfs_before_fat_maintenance": {
+      "path": "output-hammer-qspi-xip-maintenance/hardware-backup/rootfs-before-fat-maintenance-20260814T100024Z.bin",
+      "bytes": 8388608,
+      "sha256": "38fe00439f0ad58a1277bfd7c767d2b6ab2883d78cd6cc0a909103a250120d61"
     },
-    "internal_flash_before_216mhz": {
-      "path": "output-hammer-qspi-xip/hardware-backup/internal-flash-before-216mhz-20260814T0052Z.bin",
-      "bytes": 1048576
+    "qspi_before_native_linux": {
+      "path": "output-qspi/hardware-backup/qspi-before-linux-20260813T020133Z.bin",
+      "bytes": 16777216,
+      "sha256": "dc370faee88fc88cab1bf23ed1ecac90fd2e1c9d9b17bc42b967183b0225a753"
+    },
+    "internal_flash_before_native_linux": {
+      "path": "output-qspi/hardware-backup/internal-flash-before-linux-20260813T020133Z.bin",
+      "bytes": 1048576,
+      "sha256": "1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c"
     }
   },
-  "required_next_actions": [
-    "obtain explicit approval and repair the FAT allocation structure without formatting",
-    "run a clean 30-second smoke test",
-    "run and archive the 300-second PREEMPT_NONE baseline",
-    "run and archive the separately identified CONFIG_PREEMPT result",
-    "attach oscilloscope CH1 to Arduino D3 and CH2 to Arduino D4 and save a two-channel trace"
+  "remaining": [
+    "archive an external two-channel scope trace if an instrument interface is supplied",
+    "optionally run the separately identified CONFIG_PREEMPT profile; avoid its QSPI rewrite unless explicitly prioritized",
+    "authorize the available agent key on the Pi if SSH administration is needed"
   ]
 }

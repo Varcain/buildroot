@@ -46,23 +46,26 @@ still requires SD solely because parity requires persistent FAT `/data`.
 
 ## Execution status (2026-08-14)
 
-Phases 1 through 6 are implemented for the `CONFIG_PREEMPT_NONE` baseline.
+Phases 1 through 7 are implemented for the `CONFIG_PREEMPT_NONE` baseline.
 Serial, display, uinput automation, physical touch discovery, Ethernet, QSPI
 XIP root, and VFAT mounting were verified on hardware. The XIP warm-reset bug
 is fixed, and Linux now runs at the same 216 MHz board clock as oveRTOS. The
 physical scope driver owns TIM3/PB4/PG7 safely and continuously generates the
 same Arduino D3/D4 contract at a 54 MHz timer phase. The current SD profile
-requests 2 MHz and the driver reports 1.95 MHz actual. A separate
-`CONFIG_PREEMPT` follow-up profile has passed Kconfig validation.
+requests 2 MHz and the driver reports 1.95 MHz actual. The explicitly
+authorized in-place FAT1 repair, reversible write test, 30-second smoke, and
+accepted 300-second run all pass. That baseline records 83 SQLite transactions,
+15,597,568 network bytes, 57 active LVGL samples, and the complete physical
+scope distribution. A separate `CONFIG_PREEMPT` follow-up profile has passed
+Kconfig validation but has not replaced the requested baseline.
 
-Phase 7 is currently blocked before measurement: the existing FAT data volume
-contains an allocation entry beyond EOF and Linux remounts it read-only. No
-repair or format is authorized. The 300-second 216 MHz physical-scope
-diagnostic proves all concurrent workers but is non-admissible because it used
-the former 24 MHz profile and its old observer/timestamp logic. Dropbear and
-the static address are configured, but the host had no SSH agent, so serial is
-the proven administrative and log-capture path. No USB oscilloscope was
-enumerated, so a saved two-channel instrument trace remains external work.
+Phase 8 is complete as a qualified comparison. The primary FreeRTOS + LXP
+reference matches the workload contract, while rendering, SD transfer engine,
+root format, and scheduler-object differences remain explicit. The Pi proxy
+and SSH agent are now visible, but the Pi's local daemon rejects the available
+key, so serial remains the proven administrative and capture path. No USB or
+SCPI oscilloscope interface is enumerated; both D3/D4 waveforms are generated,
+but a saved two-channel instrument trace remains external evidence.
 
 ## Phases and acceptance gates
 
@@ -233,7 +236,7 @@ parity-gap table, and exact restoration steps.
 | FAT implementations and cache/writeback semantics differ | Match VFAT and SQLite durability pragmas, sync at defined boundaries, capture mount options, and avoid claiming semantic identity beyond those controls. |
 | Non-preemptible Linux can have long scheduling tails | Preserve it as the requested baseline; evaluate `CONFIG_PREEMPT` only as a separately identified follow-up. |
 | Linux and oveRTOS now share the D3/PB4 hardware reference and D4/PG7 response, but use system-native scheduler objects | Compare the physical edge quantity while documenting Linux's FIFO kernel thread versus oveRTOS's portable critical host task. |
-| Current `/data` FAT has an allocation entry beyond EOF | Do not benchmark, repair, or format until explicit approval; back up and run a read-only check before any repair. |
+| `/data` required recovery of a damaged FAT copy | The authorized repair selected FAT1 with FAT32 ExtFlags without formatting; retain the raw repair, final read-only fsck, reversible-write, and benchmark logs. |
 | U-Boot flashing overwrites oveRTOS internal flash | Verify the intended existing oveRTOS flash launcher before use and include its exact restoration command. |
 | SD imaging is destructive and may erase `/data` | Resolve the exact removable device with `lsblk`, show it to the user, and require confirmation before unmount or `dd`; preserve benchmark data first when requested. |
 
@@ -263,8 +266,8 @@ The exact internal-flash backup made in the same session is
 (SHA-256 `1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c`).
 The regular verified oveRTOS flash launchers and LXP QSPI programmer are the
 preferred personality restoration path and are listed in `hammer/README.md`.
-The SD card is a data-only MBR/FAT card, but it is currently inconsistent and
-Linux remounts it read-only when the bad allocation entry is encountered. No
-whole-device pre-format image exists, so byte-exact recovery of content that
-predated provisioning is impossible; do not repair or claim recovery without
-explicit user approval.
+The SD card is a data-only MBR/FAT card. Its selected FAT1 passes a read-only
+check and remained read-write through the accepted benchmark. No whole-device
+pre-format image exists, so byte-exact recovery of content that predated
+provisioning is impossible; any future format or repartition still requires
+exact-device identification, backup, and explicit user approval.
