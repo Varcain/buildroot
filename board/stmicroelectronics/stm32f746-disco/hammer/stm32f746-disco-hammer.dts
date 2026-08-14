@@ -242,8 +242,8 @@
 &sdio1 {
 	status = "okay";
 	vmmc-supply = <&vcc_3v3>;
-	/* Diagnostic clock while validating native Linux's PL180 write path. */
-	max-frequency = <24000000>;
+	/* Match the established LXP hammer comparison's SD/FAT bus clock. */
+	max-frequency = <2000000>;
 	cd-gpios = <&gpioc 13 GPIO_ACTIVE_LOW>;
 	pinctrl-names = "default", "opendrain";
 	pinctrl-0 = <&sdio_pins_a>;
