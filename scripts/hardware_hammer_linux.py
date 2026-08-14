@@ -117,6 +117,71 @@ def parse_json_marker(text, marker):
         return {"error": f"invalid JSON: {error}"}
 
 
+def parse_rt_scope(text):
+    match = re.search(
+        r"__HAMMER_RT_SCOPE_BEGIN__\s*(.*?)__HAMMER_RT_SCOPE_END__",
+        text, re.S,
+    )
+    if not match:
+        return None
+    raw = {}
+    for line in match.group(1).splitlines():
+        fields = line.strip().split(None, 1)
+        if len(fields) != 2:
+            continue
+        key, value = fields
+        if re.fullmatch(r"\d+", value):
+            raw[key] = int(value)
+        else:
+            raw[key] = value
+    if raw.get("available") != 1:
+        return None
+    histogram = [
+        {
+            "upper_us": upper,
+            "count": raw.get(f"dispatch_hist_le_{upper}_us", 0),
+        }
+        for upper in (1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 32,
+                      50, 100, 250, 500, 750, 1000)
+    ]
+    return {
+        "measurement": raw.get("measurement"),
+        "physical_reference": True,
+        "reference_pin": raw.get("reference_pin"),
+        "response_pin": raw.get("response_pin"),
+        "period_ns": raw.get("period_us", 0) * 1000,
+        "reference_high_us": raw.get("reference_high_us"),
+        "timer_hz": raw.get("timer_hz"),
+        "work_iterations": raw.get("work_iterations"),
+        "scheduler": raw.get("scheduler"),
+        "priority": raw.get("priority"),
+        "releases": raw.get("releases"),
+        "executions": raw.get("executions"),
+        "missed_releases": raw.get("missed"),
+        "late_finishes": raw.get("late_finish"),
+        "irq_overrun": raw.get("irq_overrun"),
+        "pending": raw.get("pending"),
+        "max_consecutive_missed": raw.get("max_consecutive_missed"),
+        "oldest_release_age_max_ns": raw.get("oldest_release_age_max_ns"),
+        "irq_entry_age_max_ns": raw.get("irq_entry_age_max_ns"),
+        "irq_signal_age_max_ns": raw.get("irq_signal_age_max_ns"),
+        "dispatch_ns": {
+            "min": raw.get("dispatch_min_ns"),
+            "average": raw.get("dispatch_avg_ns"),
+            "p99_upper_us": raw.get("dispatch_p99_us_ceiling"),
+            "p99_9_upper_us": raw.get("dispatch_p999_us_ceiling"),
+            "max": raw.get("dispatch_max_ns"),
+            "jitter": raw.get("dispatch_jitter_ns"),
+        },
+        "work_ns": {
+            "min": raw.get("work_min_ns"),
+            "max": raw.get("work_max_ns"),
+        },
+        "dispatch_histogram": histogram,
+        "proc_values": raw,
+    }
+
+
 def percentile(values, fraction):
     ordered = sorted(values)
     index = round((len(ordered) - 1) * fraction)
@@ -317,7 +382,7 @@ def archive_build_only(output, build_output, build_dir, blockers):
             "shared_physical_medium": False,
             "sd_bus_max_frequency_hz": 24000000,
             "rendering": "software LVGL draw + Linux fbdev pwrite; no DMA2D",
-            "latency": "CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch",
+            "latency": "TIM3/PB4 hardware edge to SCHED_FIFO kernel thread/PG7",
         },
         "build": record_build_metadata(output, build_output, build_dir),
     }
@@ -331,6 +396,11 @@ def target_identity(target, jump, config=None):
         "printf '[cmdline]\\n'; cat /proc/cmdline; "
         "printf '[meminfo]\\n'; cat /proc/meminfo; "
         "printf '[interrupts]\\n'; cat /proc/interrupts; "
+        "printf '[rt-scope]\\n'; test ! -r /proc/rt_scope || cat /proc/rt_scope; "
+        "printf '[pinctrl]\\n'; for p in /sys/kernel/debug/pinctrl/*/pinmux-pins; "
+        "do test -r \"$p\" && echo \"$p\" && cat \"$p\"; done; "
+        "printf '[pwm]\\n'; for p in /sys/class/pwm/pwmchip*; "
+        "do test -e \"$p\" && echo \"$p\"; done; "
         "printf '[mounts]\\n'; cat /proc/mounts; "
         "printf '[ip]\\n'; ip addr; "
         "printf '[framebuffers]\\n'; "
@@ -348,7 +418,9 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
     sqlite = parse_key_values(text, "__HAMMER_SQLITE__:")
     timing = parse_key_values(text, "__HAMMER_TIMING__:")
     network = parse_json_marker(text, "__HAMMER_NETWORK__:")
-    latency = parse_json_marker(text, "__HAMMER_LATENCY__:")
+    latency = parse_rt_scope(text)
+    if latency is None:
+        latency = parse_json_marker(text, "__HAMMER_LATENCY__:")
     lvgl = parse_lvgl(text)
     failures = []
     transactions = sqlite.get("transactions")
@@ -388,13 +460,6 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
         failures.append(
             f"active LVGL samples={lvgl['active_samples']} required={required_samples}"
         )
-    planned = duration * 1000
-    if latency.get("measurement") != "timer-to-sched-fifo":
-        failures.append("latency result missing or wrong measurement class")
-    if latency.get("releases") != planned:
-        failures.append(f"latency releases={latency.get('releases')} expected={planned}")
-    if latency.get("executions", 0) + latency.get("missed_releases", 0) != planned:
-        failures.append("latency execution/miss accounting is inconsistent")
     try:
         sqlite_elapsed = timing["ended_uptime"] - timing["started_uptime"]
     except (KeyError, TypeError):
@@ -407,6 +472,42 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
     if sqlite_elapsed and transactions:
         sqlite["elapsed_s"] = sqlite_elapsed
         sqlite["transactions_per_second"] = transactions / sqlite_elapsed
+    planned = duration * 1000
+    if latency.get("physical_reference"):
+        if latency.get("measurement") != "tim3-hardware-to-sched-fifo-kthread":
+            failures.append("physical scope result has the wrong measurement class")
+        releases = latency.get("releases")
+        executions = latency.get("executions", 0)
+        missed = latency.get("missed_releases", 0)
+        pending = latency.get("pending", 0)
+        if not isinstance(releases, int) or releases < planned:
+            failures.append(
+                f"physical scope releases={releases} shorter than {planned}"
+            )
+        if isinstance(releases, int) and sqlite_elapsed is not None:
+            expected_releases = round(sqlite_elapsed * 1000)
+            if abs(releases - expected_releases) > 50:
+                failures.append(
+                    "physical scope duration mismatch: "
+                    f"releases={releases} expected~={expected_releases}"
+                )
+        pending_execution = 1 if pending else 0
+        if isinstance(releases, int) and \
+                executions + missed + pending_execution != releases:
+            failures.append("physical scope execution/miss/pending accounting is inconsistent")
+        if latency.get("reference_pin") != "PB4_TIM3_CH1_Arduino_D3" or \
+                latency.get("response_pin") != "PG7_GPIO_Arduino_D4":
+            failures.append("physical scope D3/D4 pin contract is wrong")
+    else:
+        if latency.get("measurement") != "timer-to-sched-fifo":
+            failures.append("latency result missing or wrong measurement class")
+        if latency.get("releases") != planned:
+            failures.append(
+                f"latency releases={latency.get('releases')} expected={planned}"
+            )
+        if latency.get("executions", 0) + \
+                latency.get("missed_releases", 0) != planned:
+            failures.append("latency execution/miss accounting is inconsistent")
     network_mbps = (
         network.get("bytes", 0) * 8 /
         max(float(network.get("elapsed_s", 0)), 0.001) / 1_000_000
@@ -424,8 +525,8 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
         "cpu": cpu_summary(text),
         "latency": latency,
         "measurement_limitations": [
-            "Linux latency is CLOCK_MONOTONIC timer-to-SCHED_FIFO userspace dispatch; "
-            "it has no TIM3 hardware reference and no CH1/CH2 scope output.",
+            "Linux uses a SCHED_FIFO kernel thread while oveRTOS uses its portable "
+            "highest-priority host task; both share the TIM3/PB4-to-PG7 physical path.",
             "LVGL uses software rendering and Linux fbdev pwrite; DMA2D is not used.",
             "Linux rootfs is QSPI XIP CramFS; only FAT /data uses the SD medium.",
         ],

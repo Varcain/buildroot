@@ -186,6 +186,29 @@
 			slew-rate = <2>;
 		};
 	};
+
+	/* Arduino D3: PB4 in AF2 is the TIM3_CH1 hardware reference. */
+	rt_scope_reference_pins: rt-scope-reference-0 {
+		pins {
+			pinmux = <STM32_PINMUX('B', 4, AF2)>;
+			bias-disable;
+			drive-push-pull;
+			slew-rate = <3>;
+		};
+	};
+};
+
+/*
+ * Linux exclusively owns TIM3, IRQ 29, PB4, and PG7 for the same physical
+ * two-channel scope contract as oveRTOS.  The generic TIM3 PWM/MFD sibling
+ * remains disabled, so no second Linux driver can claim the register block.
+ */
+&timer3 {
+	compatible = "hiroic,stm32f746-rt-scope";
+	pinctrl-0 = <&rt_scope_reference_pins>;
+	pinctrl-names = "default";
+	response-gpios = <&gpiog 7 GPIO_ACTIVE_HIGH>; /* Arduino D4 */
+	status = "okay";
 };
 
 &i2c3 {

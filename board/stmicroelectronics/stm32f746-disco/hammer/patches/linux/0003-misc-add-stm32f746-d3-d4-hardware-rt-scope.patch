@@ -1,0 +1,620 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hIRoic native Linux PoC <noreply@local>
+Date: Fri, 14 Aug 2026 02:00:00 +0200
+Subject: [PATCH] misc: add STM32F746 D3/D4 hardware real-time scope
+
+Claim TIM3, its clock and IRQ, PB4/TIM3_CH1, and PG7 through the Linux
+platform, pinctrl, and GPIO frameworks. Generate the same 1 kHz / 50 us
+hardware reference on Arduino D3 as the oveRTOS scope and pulse Arduino
+D4 from a priority-99 SCHED_FIFO kernel thread around the identical
+512-iteration workload.
+
+Expose resettable lifetime counters and dispatch distributions through
+/proc/rt_scope so a hammer run can delimit a measurement window without
+stopping the physical reference.
+
+Signed-off-by: hIRoic native Linux PoC <noreply@local>
+---
+ drivers/misc/Kconfig          |  16 ++
+ drivers/misc/Makefile         |   1 +
+ drivers/misc/hiroic_rt_scope.c | 554 ++++++++++++++++++++++++++++++++++
+ 3 files changed, 571 insertions(+)
+
+diff --git a/drivers/misc/Kconfig b/drivers/misc/Kconfig
+index 0f5a49fc7c9e..44591a731bd9 100644
+--- a/drivers/misc/Kconfig
++++ b/drivers/misc/Kconfig
+@@ -483,6 +483,22 @@ config HISI_HIKEY_USB
+ 	  switching between the dual-role USB-C port and the USB-A host ports
+ 	  using only one USB controller.
+ 
++config HIROIC_RT_SCOPE
++	bool "hIRoic STM32F746 D3/D4 real-time scope"
++	depends on OF && GPIOLIB && PROC_FS
++	help
++	  Enable the hIRoic native-Linux two-channel dispatch-latency
++	  demonstrator for STM32F746G-DISCO. Arduino D3 (PB4/TIM3_CH1)
++	  carries a 1 kHz hardware PWM reference with a 50 us high pulse.
++	  A priority-99 SCHED_FIFO kernel thread pulses Arduino D4 (PG7)
++	  while it executes the same fixed 512-iteration calculation as the
++	  oveRTOS reference.
++
++	  The driver must be bound to an exclusive TIM3 device-tree node. It
++	  claims the timer MMIO range, clock, interrupt, pinctrl state, and
++	  response GPIO through their Linux frameworks. Metrics are available
++	  at /proc/rt_scope; writing "reset" starts a fresh result window.
++
+ source "drivers/misc/c2port/Kconfig"
+ source "drivers/misc/eeprom/Kconfig"
+ source "drivers/misc/cb710/Kconfig"
+diff --git a/drivers/misc/Makefile b/drivers/misc/Makefile
+index a086197af544..27cfd8496fa8 100644
+--- a/drivers/misc/Makefile
++++ b/drivers/misc/Makefile
+@@ -60,2 +60,3 @@ obj-$(CONFIG_XILINX_SDFEC)	+= xilinx_sdfec.o
+ obj-$(CONFIG_HISI_HIKEY_USB)	+= hisi_hikey_usb.o
+ obj-$(CONFIG_HI6421V600_IRQ)	+= hi6421v600-irq.o
++obj-$(CONFIG_HIROIC_RT_SCOPE)	+= hiroic_rt_scope.o
+diff --git a/drivers/misc/hiroic_rt_scope.c b/drivers/misc/hiroic_rt_scope.c
+new file mode 100644
+index 000000000000..111111111111
+--- /dev/null
++++ b/drivers/misc/hiroic_rt_scope.c
+@@ -0,0 +1,554 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * STM32F746G-DISCO two-channel real-time scope reference.
++ *
++ * Arduino D3 / PB4 / TIM3_CH1 is a 1 kHz hardware PWM with a 50 us
++ * high time. Arduino D4 / PG7 is raised by a priority-99 SCHED_FIFO
++ * kernel thread around the same fixed calculation used by oveRTOS.
++ */
++
++#include <linux/clk.h>
++#include <linux/gpio/consumer.h>
++#include <linux/interrupt.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++#include <linux/kthread.h>
++#include <linux/math64.h>
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++#include <linux/proc_fs.h>
++#include <linux/sched.h>
++#include <linux/seq_file.h>
++#include <linux/slab.h>
++#include <linux/spinlock.h>
++#include <linux/string.h>
++#include <linux/timekeeping.h>
++#include <linux/uaccess.h>
++#include <linux/wait.h>
++#include <uapi/linux/sched/types.h>
++
++#define RT_TIM_CR1		0x00
++#define RT_TIM_DIER		0x0c
++#define RT_TIM_SR		0x10
++#define RT_TIM_EGR		0x14
++#define RT_TIM_CCMR1		0x18
++#define RT_TIM_CCER		0x20
++#define RT_TIM_CNT		0x24
++#define RT_TIM_PSC		0x28
++#define RT_TIM_ARR		0x2c
++#define RT_TIM_CCR1		0x34
++
++#define RT_TIM_CR1_CEN		BIT(0)
++#define RT_TIM_CR1_ARPE		BIT(7)
++#define RT_TIM_DIER_UIE		BIT(0)
++#define RT_TIM_EGR_UG		BIT(0)
++#define RT_TIM_CCMR1_OC1PE	BIT(3)
++#define RT_TIM_CCMR1_OC1M_PWM1	(6U << 4)
++#define RT_TIM_CCER_CC1E		BIT(0)
++
++#define RT_SCOPE_TIMER_HZ	54000000UL
++#define RT_SCOPE_PERIOD_US	1000U
++#define RT_SCOPE_PERIOD_NS	1000000ULL
++#define RT_SCOPE_PERIOD_TICKS	54000U
++#define RT_SCOPE_HIGH_TICKS	2700U
++#define RT_SCOPE_WORK_ITERATIONS	512U
++#define RT_SCOPE_FIFO_PRIORITY	99
++#define RT_SCOPE_HIST_BINS	18U
++
++static const u16 rt_scope_hist_upper_us[RT_SCOPE_HIST_BINS] = {
++	1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20, 32, 50, 100, 250, 500, 750, 1000,
++};
++
++struct rt_scope_metrics {
++	u64 executions;
++	u64 missed;
++	u64 late_finish;
++	u64 irq_overrun;
++	u64 dispatch_sum_ticks;
++	u32 dispatch_min_ticks;
++	u32 dispatch_max_ticks;
++	u32 oldest_release_age_max_ticks;
++	u32 max_consecutive_missed;
++	u32 irq_entry_age_max_ticks;
++	u32 irq_signal_age_max_ticks;
++	u32 work_min_ticks;
++	u32 work_max_ticks;
++	u64 dispatch_hist[RT_SCOPE_HIST_BINS];
++};
++
++struct rt_scope {
++	struct device *dev;
++	void __iomem *base;
++	struct clk *clk;
++	struct gpio_desc *response;
++	struct task_struct *thread;
++	struct proc_dir_entry *proc;
++	wait_queue_head_t wait;
++	spinlock_t lock;
++	u32 deadline_count;
++	u32 last_execution_deadline;
++	u32 reset_deadline;
++	u64 last_deadline_ns;
++	struct rt_scope_metrics metrics;
++	volatile u32 payload_state;
++};
++
++static u64 rt_scope_ticks_to_ns(u64 ticks)
++{
++	return DIV_ROUND_CLOSEST_ULL(ticks * NSEC_PER_SEC,
++				     RT_SCOPE_TIMER_HZ);
++}
++
++static unsigned int rt_scope_histogram_bin(u32 ticks)
++{
++	unsigned int index;
++
++	for (index = 0; index < RT_SCOPE_HIST_BINS; index++) {
++		if (ticks <= rt_scope_hist_upper_us[index] * 54U)
++			return index;
++	}
++	return RT_SCOPE_HIST_BINS - 1U;
++}
++
++static u16 rt_scope_percentile_upper(const struct rt_scope_metrics *metrics,
++				     unsigned int per_mille)
++{
++	u64 target;
++	u64 cumulative = 0;
++	unsigned int index;
++
++	if (!metrics->executions)
++		return 0;
++	target = DIV_ROUND_UP_ULL(metrics->executions * per_mille, 1000);
++	for (index = 0; index < RT_SCOPE_HIST_BINS; index++) {
++		cumulative += metrics->dispatch_hist[index];
++		if (cumulative >= target)
++			return rt_scope_hist_upper_us[index];
++	}
++	return rt_scope_hist_upper_us[RT_SCOPE_HIST_BINS - 1U];
++}
++
++static irqreturn_t rt_scope_interrupt(int irq, void *argument)
++{
++	struct rt_scope *scope = argument;
++	u32 phase_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
++	u64 now_ns = ktime_get_mono_fast_ns();
++	u64 phase_ns = rt_scope_ticks_to_ns(phase_ticks);
++	u64 deadline_ns = now_ns > phase_ns ? now_ns - phase_ns : now_ns;
++	u64 elapsed_ns;
++	u64 periods;
++	u64 age_ticks;
++	unsigned long flags;
++	u32 signal_ticks;
++
++	writel_relaxed(0, scope->base + RT_TIM_SR);
++
++	spin_lock_irqsave(&scope->lock, flags);
++	elapsed_ns = deadline_ns > scope->last_deadline_ns ?
++		deadline_ns - scope->last_deadline_ns : 0;
++	periods = DIV_ROUND_CLOSEST_ULL(elapsed_ns, RT_SCOPE_PERIOD_NS);
++	if (!periods)
++		periods = 1;
++	if (periods > U32_MAX)
++		periods = U32_MAX;
++	scope->last_deadline_ns += periods * RT_SCOPE_PERIOD_NS;
++	scope->deadline_count += (u32)periods;
++	if (periods > 1)
++		scope->metrics.irq_overrun += periods - 1;
++	age_ticks = (periods - 1) * RT_SCOPE_PERIOD_TICKS + phase_ticks;
++	if (age_ticks > scope->metrics.irq_entry_age_max_ticks)
++		scope->metrics.irq_entry_age_max_ticks = min_t(u64, age_ticks,
++								 U32_MAX);
++	spin_unlock_irqrestore(&scope->lock, flags);
++
++	wake_up_interruptible(&scope->wait);
++	signal_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
++	spin_lock_irqsave(&scope->lock, flags);
++	if (signal_ticks > scope->metrics.irq_signal_age_max_ticks)
++		scope->metrics.irq_signal_age_max_ticks = signal_ticks;
++	spin_unlock_irqrestore(&scope->lock, flags);
++
++	return IRQ_HANDLED;
++}
++
++static int rt_scope_thread(void *argument)
++{
++	struct rt_scope *scope = argument;
++	struct sched_param parameters = {
++		.sched_priority = RT_SCOPE_FIFO_PRIORITY,
++	};
++
++	if (sched_setscheduler_nocheck(current, SCHED_FIFO, &parameters)) {
++		dev_err(scope->dev, "cannot select SCHED_FIFO priority %d\n",
++			RT_SCOPE_FIFO_PRIORITY);
++		return -EINVAL;
++	}
++
++	while (!kthread_should_stop()) {
++		u32 deadline;
++		u32 previous;
++		u32 window_previous;
++		u64 missed;
++		u64 oldest_ticks;
++		u32 dispatch_ticks;
++		u32 finish_ticks;
++		u32 work_ticks;
++		u32 state;
++		unsigned int index;
++		unsigned long flags;
++		bool late_finish;
++
++		wait_event_interruptible(scope->wait,
++			kthread_should_stop() ||
++			READ_ONCE(scope->deadline_count) !=
++			READ_ONCE(scope->last_execution_deadline));
++		if (kthread_should_stop())
++			break;
++
++		spin_lock_irqsave(&scope->lock, flags);
++		deadline = scope->deadline_count;
++		previous = scope->last_execution_deadline;
++		window_previous = max(previous, scope->reset_deadline);
++		spin_unlock_irqrestore(&scope->lock, flags);
++		if (deadline == previous)
++			continue;
++
++		dispatch_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
++		gpiod_set_value(scope->response, 1);
++		state = scope->payload_state;
++		for (index = 0; index < RT_SCOPE_WORK_ITERATIONS; index++) {
++			state = state * 1664525U + 1013904223U;
++			asm volatile("" : "+r" (state));
++		}
++		scope->payload_state = state;
++		gpiod_set_value(scope->response, 0);
++		finish_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
++		late_finish = finish_ticks < dispatch_ticks;
++		work_ticks = late_finish ?
++			RT_SCOPE_PERIOD_TICKS - dispatch_ticks + finish_ticks :
++			finish_ticks - dispatch_ticks;
++
++		spin_lock_irqsave(&scope->lock, flags);
++		scope->last_execution_deadline = deadline;
++		if (deadline > scope->reset_deadline) {
++			missed = deadline > window_previous ?
++				deadline - window_previous - 1 : 0;
++			oldest_ticks = missed * RT_SCOPE_PERIOD_TICKS +
++				dispatch_ticks;
++			scope->metrics.executions++;
++			scope->metrics.missed += missed;
++			if (late_finish)
++				scope->metrics.late_finish++;
++			scope->metrics.dispatch_sum_ticks += dispatch_ticks;
++			if (dispatch_ticks < scope->metrics.dispatch_min_ticks)
++				scope->metrics.dispatch_min_ticks = dispatch_ticks;
++			if (dispatch_ticks > scope->metrics.dispatch_max_ticks)
++				scope->metrics.dispatch_max_ticks = dispatch_ticks;
++			if (oldest_ticks >
++			    scope->metrics.oldest_release_age_max_ticks)
++				scope->metrics.oldest_release_age_max_ticks =
++					min_t(u64, oldest_ticks, U32_MAX);
++			if (missed > scope->metrics.max_consecutive_missed)
++				scope->metrics.max_consecutive_missed =
++					min_t(u64, missed, U32_MAX);
++			if (work_ticks < scope->metrics.work_min_ticks)
++				scope->metrics.work_min_ticks = work_ticks;
++			if (work_ticks > scope->metrics.work_max_ticks)
++				scope->metrics.work_max_ticks = work_ticks;
++			scope->metrics.dispatch_hist[
++				rt_scope_histogram_bin(dispatch_ticks)]++;
++		}
++		spin_unlock_irqrestore(&scope->lock, flags);
++	}
++
++	gpiod_set_value(scope->response, 0);
++	return 0;
++}
++
++static void rt_scope_reset_metrics(struct rt_scope *scope)
++{
++	unsigned long flags;
++
++	spin_lock_irqsave(&scope->lock, flags);
++	memset(&scope->metrics, 0, sizeof(scope->metrics));
++	scope->metrics.dispatch_min_ticks = U32_MAX;
++	scope->metrics.work_min_ticks = U32_MAX;
++	scope->reset_deadline = scope->deadline_count;
++	spin_unlock_irqrestore(&scope->lock, flags);
++}
++
++static int rt_scope_proc_show(struct seq_file *sequence, void *unused)
++{
++	struct rt_scope *scope = sequence->private;
++	struct rt_scope_metrics metrics;
++	u32 deadline_count;
++	u32 reset_deadline;
++	u32 last_execution;
++	u64 releases;
++	u64 pending;
++	u64 backlog_missed;
++	u64 average_ticks;
++	u64 oldest_ticks;
++	u32 dispatch_min;
++	u32 work_min;
++	u32 phase_ticks;
++	unsigned int index;
++	unsigned long flags;
++
++	phase_ticks = readl_relaxed(scope->base + RT_TIM_CNT);
++	spin_lock_irqsave(&scope->lock, flags);
++	metrics = scope->metrics;
++	deadline_count = scope->deadline_count;
++	reset_deadline = scope->reset_deadline;
++	last_execution = scope->last_execution_deadline;
++	spin_unlock_irqrestore(&scope->lock, flags);
++
++	releases = deadline_count - reset_deadline;
++	pending = deadline_count - max(last_execution, reset_deadline);
++	backlog_missed = pending ? pending - 1 : 0;
++	metrics.missed += backlog_missed;
++	if (backlog_missed > metrics.max_consecutive_missed)
++		metrics.max_consecutive_missed = min_t(u64, backlog_missed,
++							 U32_MAX);
++	if (pending) {
++		oldest_ticks = backlog_missed * RT_SCOPE_PERIOD_TICKS +
++			phase_ticks;
++		if (oldest_ticks > metrics.oldest_release_age_max_ticks)
++			metrics.oldest_release_age_max_ticks =
++				min_t(u64, oldest_ticks, U32_MAX);
++	}
++	average_ticks = metrics.executions ?
++		div64_u64(metrics.dispatch_sum_ticks, metrics.executions) : 0;
++	dispatch_min = metrics.executions ? metrics.dispatch_min_ticks : 0;
++	work_min = metrics.executions ? metrics.work_min_ticks : 0;
++
++	seq_puts(sequence, "available 1\n");
++	seq_puts(sequence,
++		 "measurement tim3-hardware-to-sched-fifo-kthread\n");
++	seq_puts(sequence, "reference_pin PB4_TIM3_CH1_Arduino_D3\n");
++	seq_puts(sequence, "response_pin PG7_GPIO_Arduino_D4\n");
++	seq_puts(sequence, "scheduler SCHED_FIFO\n");
++	seq_printf(sequence, "priority %u\n", RT_SCOPE_FIFO_PRIORITY);
++	seq_printf(sequence, "period_us %u\n", RT_SCOPE_PERIOD_US);
++	seq_printf(sequence, "reference_high_us %u\n", 50U);
++	seq_printf(sequence, "timer_hz %lu\n", RT_SCOPE_TIMER_HZ);
++	seq_printf(sequence, "work_iterations %u\n",
++		   RT_SCOPE_WORK_ITERATIONS);
++	seq_printf(sequence, "releases %llu\n", releases);
++	seq_printf(sequence, "executions %llu\n", metrics.executions);
++	seq_printf(sequence, "missed %llu\n", metrics.missed);
++	seq_printf(sequence, "late_finish %llu\n", metrics.late_finish);
++	seq_printf(sequence, "irq_overrun %llu\n", metrics.irq_overrun);
++	seq_printf(sequence, "pending %llu\n", pending);
++	seq_printf(sequence, "dispatch_samples %llu\n", metrics.executions);
++	seq_printf(sequence, "dispatch_min_ns %llu\n",
++		   rt_scope_ticks_to_ns(dispatch_min));
++	seq_printf(sequence, "dispatch_avg_ns %llu\n",
++		   rt_scope_ticks_to_ns(average_ticks));
++	seq_printf(sequence, "dispatch_p99_us_ceiling %u\n",
++		   rt_scope_percentile_upper(&metrics, 990));
++	seq_printf(sequence, "dispatch_p999_us_ceiling %u\n",
++		   rt_scope_percentile_upper(&metrics, 999));
++	seq_printf(sequence, "dispatch_max_ns %llu\n",
++		   rt_scope_ticks_to_ns(metrics.dispatch_max_ticks));
++	seq_printf(sequence, "dispatch_jitter_ns %llu\n",
++		   rt_scope_ticks_to_ns(metrics.dispatch_max_ticks - dispatch_min));
++	seq_printf(sequence, "oldest_release_age_max_ns %llu\n",
++		   rt_scope_ticks_to_ns(metrics.oldest_release_age_max_ticks));
++	seq_printf(sequence, "max_consecutive_missed %u\n",
++		   metrics.max_consecutive_missed);
++	seq_printf(sequence, "irq_entry_age_max_ns %llu\n",
++		   rt_scope_ticks_to_ns(metrics.irq_entry_age_max_ticks));
++	seq_printf(sequence, "irq_signal_age_max_ns %llu\n",
++		   rt_scope_ticks_to_ns(metrics.irq_signal_age_max_ticks));
++	seq_printf(sequence, "work_min_ns %llu\n",
++		   rt_scope_ticks_to_ns(work_min));
++	seq_printf(sequence, "work_max_ns %llu\n",
++		   rt_scope_ticks_to_ns(metrics.work_max_ticks));
++	for (index = 0; index < RT_SCOPE_HIST_BINS; index++)
++		seq_printf(sequence, "dispatch_hist_le_%u_us %llu\n",
++			   rt_scope_hist_upper_us[index],
++			   metrics.dispatch_hist[index]);
++	return 0;
++}
++
++static int rt_scope_proc_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, rt_scope_proc_show, PDE_DATA(inode));
++}
++
++static ssize_t rt_scope_proc_write(struct file *file,
++				   const char __user *user_buffer,
++				   size_t count, loff_t *position)
++{
++	struct rt_scope *scope = PDE_DATA(file_inode(file));
++	char command[16];
++	size_t length = min(count, sizeof(command) - 1);
++
++	if (!count || count >= sizeof(command))
++		return -EINVAL;
++	if (copy_from_user(command, user_buffer, length))
++		return -EFAULT;
++	command[length] = '\0';
++	if (!sysfs_streq(command, "reset"))
++		return -EINVAL;
++	rt_scope_reset_metrics(scope);
++	return count;
++}
++
++static const struct proc_ops rt_scope_proc_ops = {
++	.proc_open = rt_scope_proc_open,
++	.proc_read = seq_read,
++	.proc_write = rt_scope_proc_write,
++	.proc_lseek = seq_lseek,
++	.proc_release = single_release,
++};
++
++static void rt_scope_timer_stop(struct rt_scope *scope)
++{
++	writel_relaxed(0, scope->base + RT_TIM_DIER);
++	writel_relaxed(0, scope->base + RT_TIM_CR1);
++	writel_relaxed(0, scope->base + RT_TIM_SR);
++}
++
++static void rt_scope_timer_start(struct rt_scope *scope, u32 prescaler)
++{
++	writel_relaxed(0, scope->base + RT_TIM_CR1);
++	writel_relaxed(0, scope->base + RT_TIM_DIER);
++	writel_relaxed(prescaler, scope->base + RT_TIM_PSC);
++	writel_relaxed(RT_SCOPE_PERIOD_TICKS - 1, scope->base + RT_TIM_ARR);
++	writel_relaxed(RT_SCOPE_HIGH_TICKS, scope->base + RT_TIM_CCR1);
++	writel_relaxed(RT_TIM_CCMR1_OC1PE | RT_TIM_CCMR1_OC1M_PWM1,
++		       scope->base + RT_TIM_CCMR1);
++	writel_relaxed(RT_TIM_CCER_CC1E, scope->base + RT_TIM_CCER);
++	writel_relaxed(RT_TIM_EGR_UG, scope->base + RT_TIM_EGR);
++	writel_relaxed(0, scope->base + RT_TIM_SR);
++	writel_relaxed(RT_SCOPE_PERIOD_TICKS - 1, scope->base + RT_TIM_CNT);
++	scope->last_deadline_ns = ktime_get_mono_fast_ns();
++	writel_relaxed(RT_TIM_DIER_UIE, scope->base + RT_TIM_DIER);
++	writel_relaxed(RT_TIM_CR1_ARPE | RT_TIM_CR1_CEN,
++		       scope->base + RT_TIM_CR1);
++}
++
++static int rt_scope_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct rt_scope *scope;
++	unsigned long clock_rate;
++	u32 prescaler;
++	int irq;
++	int result;
++
++	scope = devm_kzalloc(dev, sizeof(*scope), GFP_KERNEL);
++	if (!scope)
++		return -ENOMEM;
++	scope->dev = dev;
++	scope->payload_state = 0x6d2b79f5U;
++	init_waitqueue_head(&scope->wait);
++	spin_lock_init(&scope->lock);
++	rt_scope_reset_metrics(scope);
++
++	scope->base = devm_platform_ioremap_resource(pdev, 0);
++	if (IS_ERR(scope->base))
++		return PTR_ERR(scope->base);
++	scope->clk = devm_clk_get(dev, NULL);
++	if (IS_ERR(scope->clk))
++		return dev_err_probe(dev, PTR_ERR(scope->clk),
++				     "cannot claim TIM3 clock\n");
++	scope->response = devm_gpiod_get(dev, "response", GPIOD_OUT_LOW);
++	if (IS_ERR(scope->response))
++		return dev_err_probe(dev, PTR_ERR(scope->response),
++				     "cannot claim Arduino D4 / PG7\n");
++	if (gpiod_cansleep(scope->response)) {
++		dev_err(dev, "Arduino D4 / PG7 GPIO may sleep\n");
++		return -EINVAL;
++	}
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0)
++		return irq;
++
++	result = clk_prepare_enable(scope->clk);
++	if (result)
++		return dev_err_probe(dev, result, "cannot enable TIM3 clock\n");
++	clock_rate = clk_get_rate(scope->clk);
++	if (clock_rate < RT_SCOPE_TIMER_HZ ||
++	    clock_rate % RT_SCOPE_TIMER_HZ) {
++		dev_err(dev, "TIM3 clock %lu cannot produce 54 MHz exactly\n",
++			clock_rate);
++		result = -EINVAL;
++		goto disable_clock;
++	}
++	prescaler = clock_rate / RT_SCOPE_TIMER_HZ - 1;
++	if (prescaler > U16_MAX) {
++		result = -ERANGE;
++		goto disable_clock;
++	}
++
++	result = devm_request_irq(dev, irq, rt_scope_interrupt,
++				  IRQF_TIMER | IRQF_NO_THREAD,
++				  dev_name(dev), scope);
++	if (result) {
++		dev_err(dev, "cannot claim TIM3 IRQ %d: %d\n", irq, result);
++		goto disable_clock;
++	}
++	scope->thread = kthread_create(rt_scope_thread, scope, "rt-scope");
++	if (IS_ERR(scope->thread)) {
++		result = PTR_ERR(scope->thread);
++		goto disable_clock;
++	}
++	scope->proc = proc_create_data("rt_scope", 0600, NULL,
++				       &rt_scope_proc_ops, scope);
++	if (!scope->proc) {
++		result = -ENOMEM;
++		goto stop_thread;
++	}
++
++	platform_set_drvdata(pdev, scope);
++	wake_up_process(scope->thread);
++	rt_scope_timer_start(scope, prescaler);
++	dev_info(dev,
++		 "CH1 Arduino D3/PB4 1 kHz 50 us; CH2 Arduino D4/PG7; TIM3=%lu Hz, FIFO=%d\n",
++		 clock_rate, RT_SCOPE_FIFO_PRIORITY);
++	return 0;
++
++stop_thread:
++	kthread_stop(scope->thread);
++disable_clock:
++	clk_disable_unprepare(scope->clk);
++	return result;
++}
++
++static int rt_scope_remove(struct platform_device *pdev)
++{
++	struct rt_scope *scope = platform_get_drvdata(pdev);
++
++	rt_scope_timer_stop(scope);
++	if (scope->proc)
++		proc_remove(scope->proc);
++	if (scope->thread)
++		kthread_stop(scope->thread);
++	gpiod_set_value(scope->response, 0);
++	clk_disable_unprepare(scope->clk);
++	return 0;
++}
++
++static const struct of_device_id rt_scope_of_match[] = {
++	{ .compatible = "hiroic,stm32f746-rt-scope" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, rt_scope_of_match);
++
++static struct platform_driver rt_scope_driver = {
++	.probe = rt_scope_probe,
++	.remove = rt_scope_remove,
++	.driver = {
++		.name = "hiroic-rt-scope",
++		.of_match_table = rt_scope_of_match,
++	},
++};
++module_platform_driver(rt_scope_driver);
++
++MODULE_AUTHOR("hIRoic native Linux hammer PoC");
++MODULE_DESCRIPTION("STM32F746 D3/D4 two-channel real-time scope");
++MODULE_LICENSE("GPL");
+
+-- 
+2.50.1

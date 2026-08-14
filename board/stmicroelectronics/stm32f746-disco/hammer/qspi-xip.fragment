@@ -35,3 +35,6 @@ CONFIG_MMC_STM32_SDMMC=y
 
 # The optional data-only SD image uses an MBR, not GPT/EFI partitions.
 # CONFIG_EFI_PARTITION is not set
+
+# Retain live pinctrl ownership evidence for the TIM3/PB4/PG7 scope audit.
+CONFIG_DEBUG_FS=y

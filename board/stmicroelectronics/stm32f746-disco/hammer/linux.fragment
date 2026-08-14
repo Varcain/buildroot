@@ -63,3 +63,6 @@ CONFIG_NLS_ISO8859_1=y
 
 CONFIG_GPIO_CDEV=y
 CONFIG_DEBUG_FS=y
+
+# Physical dispatch reference matching oveRTOS Arduino D3/D4 scope output.
+CONFIG_HIROIC_RT_SCOPE=y
