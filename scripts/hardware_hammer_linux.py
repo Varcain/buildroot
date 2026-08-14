@@ -380,7 +380,7 @@ def archive_build_only(output, build_output, build_dir, blockers):
             "root": "read-only XIP-enabled CramFS in QSPI",
             "data": "VFAT on SD partition 1 (data-only) or legacy partition 2",
             "shared_physical_medium": False,
-            "sd_bus_max_frequency_hz": 24000000,
+            "sd_bus_max_frequency_hz": 2000000,
             "rendering": "software LVGL draw + Linux fbdev pwrite; no DMA2D",
             "latency": "TIM3/PB4 hardware edge to SCHED_FIFO kernel thread/PG7",
         },
@@ -423,6 +423,15 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
         latency = parse_json_marker(text, "__HAMMER_LATENCY__:")
     lvgl = parse_lvgl(text)
     failures = []
+    kernel_fault_patterns = {
+        "kernel OOM": (
+            r"invoked oom-killer", r"Out of memory: Killed process",
+        ),
+        "kernel oops": (r"\bOops:", r"\bBUG:", r"Kernel panic"),
+    }
+    for fault_name, patterns in kernel_fault_patterns.items():
+        if any(re.search(pattern, text, re.I) for pattern in patterns):
+            failures.append(f"{fault_name} observed during benchmark capture")
     transactions = sqlite.get("transactions")
     expected_rows = transactions * 8 if isinstance(transactions, int) else None
     if returncode != 0:
@@ -484,8 +493,17 @@ def analyze(duration, wall_seconds, returncode, text, server_metrics):
             failures.append(
                 f"physical scope releases={releases} shorter than {planned}"
             )
-        if isinstance(releases, int) and sqlite_elapsed is not None:
-            expected_releases = round(sqlite_elapsed * 1000)
+        try:
+            scope_elapsed = (
+                timing["scope_captured_uptime"] - timing["started_uptime"]
+            )
+        except (KeyError, TypeError):
+            scope_elapsed = None
+            failures.append("physical scope capture time missing")
+        if scope_elapsed is not None:
+            latency["elapsed_s"] = scope_elapsed
+        if isinstance(releases, int) and scope_elapsed is not None:
+            expected_releases = round(scope_elapsed * 1000)
             if abs(releases - expected_releases) > 50:
                 failures.append(
                     "physical scope duration mismatch: "

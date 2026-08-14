@@ -24,6 +24,16 @@ latency_mode=
 uinput_pid=
 sqlite_pid=
 
+dump_file()
+{
+	# BusyBox cat may need a high-order NOMMU allocation when execing under the
+	# full hammer load.  Read procfs/sysfs files in the resident shell so the
+	# observer cannot perturb (or OOM) the measured workload.
+	while IFS= read -r dump_line || [ -n "$dump_line" ]; do
+		printf '%s\n' "$dump_line"
+	done <"$1"
+}
+
 cleanup()
 {
 	trap - EXIT INT TERM HUP
@@ -65,37 +75,43 @@ snapshot()
 	label="$1"
 	printf '__SNAPSHOT_%s_BEGIN__\n' "$label"
 	printf '[uptime]\n'
-	cat /proc/uptime
+	dump_file /proc/uptime
 	printf '[meminfo]\n'
-	cat /proc/meminfo
+	dump_file /proc/meminfo
 	printf '[stat]\n'
-	cat /proc/stat
+	dump_file /proc/stat
 	printf '[interrupts]\n'
-	cat /proc/interrupts
+	dump_file /proc/interrupts
 	printf '[rt-scope]\n'
-	[ -r /proc/rt_scope ] && cat /proc/rt_scope
+	[ -r /proc/rt_scope ] && dump_file /proc/rt_scope
 	printf '[mounts]\n'
-	cat /proc/mounts
+	dump_file /proc/mounts
 	printf '[diskstats]\n'
-	cat /proc/diskstats
+	dump_file /proc/diskstats
 	printf '[block-stat]\n'
 	for block_stat in /sys/class/block/mmcblk*/stat; do
 		[ -r "$block_stat" ] || continue
 		printf '%s ' "$block_stat"
-		cat "$block_stat"
+		dump_file "$block_stat"
 	done
-	printf '[df-data]\n'
-	df -k /data
-	printf '[statfs-data]\n'
-	stat -f /data
 	printf '[processes]\n'
-	for measured_pid in "$$" "$lv_pid" "$net_pid" "$latency_pid"; do
+	for measured_pid in "$$" "$lv_pid" "$net_pid" "$latency_pid" \
+		"$sqlite_pid"; do
 		[ -n "$measured_pid" ] || continue
 		[ -r "/proc/$measured_pid/stat" ] || continue
-		cat "/proc/$measured_pid/stat"
+		dump_file "/proc/$measured_pid/stat"
 	done
-	printf '[top]\n'
-	top -b -n 1
+	# The physical response worker is a kernel thread, not a child PID known to
+	# this shell. Discover it without spawning ps/grep under measurement load.
+	for comm_path in /proc/[0-9]*/comm; do
+		[ -r "$comm_path" ] || continue
+		IFS= read -r comm_name <"$comm_path" || continue
+		[ "$comm_name" = rt-scope ] || continue
+		measured_pid="${comm_path#/proc/}"
+		measured_pid="${measured_pid%/comm}"
+		[ -r "/proc/$measured_pid/stat" ] && \
+			dump_file "/proc/$measured_pid/stat"
+	done
 	printf '__SNAPSHOT_%s_END__\n' "$label"
 }
 
@@ -296,11 +312,26 @@ while :; do
 	fi
 done
 IFS=' ' read -r ended_uptime ignored </proc/uptime
+scope_captured_uptime="$ended_uptime"
 if [ "$latency_mode" = tim3-hardware-to-sched-fifo-kthread ]; then
-	cat /proc/rt_scope >"$rt_scope_result" || {
+	# Capture first, then timestamp it. This keeps any scheduling delay while
+	# opening/reading procfs out of the SQLite duration while still pairing the
+	# physical release count with the instant at which it was observed.
+	dump_file /proc/rt_scope >"$rt_scope_result" || {
 		[ "$failure" = none ] && failure=latency
 	}
+	IFS=' ' read -r scope_captured_uptime ignored </proc/uptime
 fi
+snapshot AFTER
+
+# The measured interval and its process/CPU snapshot are now complete. Free
+# lvmusic's large FDPIC segment before running any post-processing utilities.
+kill "$lv_pid" 2>/dev/null
+wait "$lv_pid" 2>/dev/null
+lv_pid=
+kill "$uinput_pid" 2>/dev/null
+wait "$uinput_pid" 2>/dev/null
+uinput_pid=
 
 attempt=0
 while [ "$attempt" -lt 600 ]; do
@@ -356,12 +387,11 @@ required_samples=30
 [ "$error_bytes" -eq 0 ] || [ "$failure" != none ] || failure=sqlite-errors
 [ "$active_samples" -ge "$required_samples" ] || [ "$failure" != none ] || failure=lvgl-samples
 
-snapshot AFTER
 printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s retries=%s integrity=%s error=%s\n' \
 	"$submitted" "$rows" "$meta" "$live_rows" "$transaction_retries" \
 	"$integrity" "$failure"
-printf '__HAMMER_TIMING__:started_uptime=%s ended_uptime=%s\n' \
-	"$started_uptime" "$ended_uptime"
+printf '__HAMMER_TIMING__:started_uptime=%s ended_uptime=%s scope_captured_uptime=%s\n' \
+	"$started_uptime" "$ended_uptime" "$scope_captured_uptime"
 printf '__HAMMER_NETWORK__:'
 [ -s "$net_result" ] && cat "$net_result" || echo '{"error":"missing"}'
 printf '__HAMMER_LATENCY__:'
@@ -377,9 +407,5 @@ cat "$lvgl_log"
 printf '__LVGL_LOG_END__\n'
 printf '__HAMMER_END__:native-linux-shell\n'
 
-kill "$lv_pid" 2>/dev/null
-lv_pid=
-kill "$uinput_pid" 2>/dev/null
-uinput_pid=
 trap - EXIT INT TERM HUP
 [ "$failure" = none ]
