@@ -1,0 +1,44 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] tty: stm32-usart: thread non-DMA interrupts on PREEMPT_RT
+
+The STM32 USART driver registers an explicit IRQF_ONESHOT primary handler,
+so PREEMPT_RT's forced-thread setup deliberately leaves that primary handler
+in hard-IRQ context.  The non-DMA TX path takes uart_port.lock, which is a
+sleeping spin lock on PREEMPT_RT and triggers scheduling-while-atomic.
+
+For the non-DMA case, register the complete USART handler as the explicit
+thread function on PREEMPT_RT.  Preserve the existing split hard/threaded
+DMA handling and preserve all non-RT behavior.
+
+Upstream-status: Pending
+---
+ drivers/tty/serial/stm32-usart.c | 13 +++++++++++--
+ 1 file changed, 11 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/tty/serial/stm32-usart.c b/drivers/tty/serial/stm32-usart.c
+--- a/drivers/tty/serial/stm32-usart.c
++++ b/drivers/tty/serial/stm32-usart.c
+@@ -827,14 +827,23 @@ static int stm32_usart_startup(struct uart_port *port)
+ 	struct stm32_port *stm32_port = to_stm32_port(port);
+ 	const struct stm32_usart_offsets *ofs = &stm32_port->info->ofs;
+ 	const struct stm32_usart_config *cfg = &stm32_port->info->cfg;
++	irq_handler_t handler = stm32_usart_interrupt;
++	irq_handler_t thread_fn = stm32_usart_threaded_interrupt;
+ 	const char *name = to_platform_device(port->dev)->name;
+ 	u32 val;
+ 	int ret;
+ 
+-	ret = request_threaded_irq(port->irq, stm32_usart_interrupt,
+-				   stm32_usart_threaded_interrupt,
++	if (IS_ENABLED(CONFIG_PREEMPT_RT) &&
++	    !stm32_usart_rx_dma_enabled(port)) {
++		handler = NULL;
++		thread_fn = stm32_usart_interrupt;
++	}
++
++	ret = request_threaded_irq(port->irq, handler, thread_fn,
+ 				   IRQF_ONESHOT | IRQF_NO_SUSPEND,
+ 				   name, port);
+ 	if (ret)
+-- 
+2.51.0
