@@ -4,6 +4,7 @@
 import argparse
 import os
 import re
+import select
 import sys
 import time
 from pathlib import Path
@@ -13,13 +14,49 @@ from run_serial_command import configure, paced_write, read_until
 
 LOGIN_PATTERN = rb"(?:^|[\r\n])[A-Za-z0-9._-]+ login: "
 SHELL_PATTERN = rb"(?:^|[\r\n])~ # "
-UBOOT_PATTERN = rb"(?:^|[\r\n])(?:=>|U-Boot >) "
+UBOOT_PATTERN = rb"(?:=>|U-Boot >) "
 
 
 def wait_for(fd, stream, pattern, deadline):
     captured = bytearray()
     if read_until(fd, stream, captured, (pattern,), deadline) is None:
         raise SystemExit(f"serial pattern was not observed: {pattern!r}")
+
+
+def stop_autoboot(fd, stream, deadline):
+    """Continuously request an autoboot stop across a hardware reset."""
+    captured = bytearray()
+    prompt = re.compile(UBOOT_PATTERN)
+    next_space = 0.0
+    stop_deadline = min(deadline, time.monotonic() + 15.0)
+    while time.monotonic() < stop_deadline:
+        now = time.monotonic()
+        if now >= next_space:
+            try:
+                os.write(fd, b" ")
+            except BlockingIOError:
+                pass
+            next_space = now + 0.25
+        readable, _, _ = select.select([fd], [], [], 0.05)
+        if not readable:
+            continue
+        try:
+            chunk = os.read(fd, 4096)
+        except BlockingIOError:
+            continue
+        if not chunk:
+            continue
+        stream.write(chunk)
+        stream.flush()
+        sys.stdout.buffer.write(chunk)
+        sys.stdout.buffer.flush()
+        captured.extend(chunk)
+        if prompt.search(bytes(captured[-16384:])):
+            return
+    # A noisy VCP can lose the original prompt.  End any accumulated blank
+    # command and request a fresh prompt after the autoboot window is over.
+    os.write(fd, b"\r")
+    wait_for(fd, stream, UBOOT_PATTERN, deadline)
 
 
 def main():
@@ -53,14 +90,7 @@ def main():
     with args.output.open("wb") as stream:
         if args.already_in_uboot:
             if args.wait_for_autoboot:
-                wait_for(
-                    fd,
-                    stream,
-                    rb"Hit SPACE in 3 seconds to stop autoboot\.",
-                    deadline,
-                )
-                paced_write(fd, " ", delay)
-                wait_for(fd, stream, UBOOT_PATTERN, deadline)
+                stop_autoboot(fd, stream, deadline)
             else:
                 paced_write(fd, "\r", delay)
                 wait_for(fd, stream, UBOOT_PATTERN, deadline)
