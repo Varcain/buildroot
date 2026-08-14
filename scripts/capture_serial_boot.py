@@ -3,6 +3,7 @@
 
 import argparse
 import os
+import re
 import select
 import sys
 import termios
@@ -44,7 +45,10 @@ def main():
             readable, _, _ = select.select([fd], [], [], 1.0)
             if not readable:
                 continue
-            chunk = os.read(fd, 4096)
+            try:
+                chunk = os.read(fd, 4096)
+            except BlockingIOError:
+                continue
             if not chunk:
                 continue
             stream.write(chunk)
@@ -52,10 +56,11 @@ def main():
             sys.stdout.buffer.write(chunk)
             sys.stdout.buffer.flush()
             captured.extend(chunk)
-            if b"stm32f746-linux login:" in captured[-8192:]:
+            if re.search(rb"(?:^|[\r\n])[A-Za-z0-9._-]+ login: ",
+                         captured[-8192:]):
                 break
     os.close(fd)
-    if b"stm32f746-linux login:" not in captured:
+    if not re.search(rb"(?:^|[\r\n])[A-Za-z0-9._-]+ login: ", captured):
         raise SystemExit("login prompt was not observed before timeout")
 
 

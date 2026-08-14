@@ -36,7 +36,10 @@ def read_until(fd, stream, captured, patterns, deadline):
         readable, _, _ = select.select([fd], [], [], 1.0)
         if not readable:
             continue
-        chunk = os.read(fd, 4096)
+        try:
+            chunk = os.read(fd, 4096)
+        except BlockingIOError:
+            continue
         if not chunk:
             continue
         stream.write(chunk)
@@ -60,6 +63,10 @@ def main():
     parser.add_argument("--password-env", default="SERIAL_CONSOLE_PASSWORD")
     parser.add_argument("--timeout", type=int, default=1200)
     parser.add_argument("--character-delay-ms", type=float, default=20.0)
+    parser.add_argument(
+        "--require-login", action="store_true",
+        help="ignore stale shell prompts and wait for a fresh login prompt",
+    )
     args = parser.parse_args()
     if not args.device.startswith("/dev/") or not os.path.exists(args.device):
         parser.error("--device must name an existing exact /dev path")
@@ -69,17 +76,17 @@ def main():
 
     fd = os.open(args.device, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
     configure(fd)
+    termios.tcflush(fd, termios.TCIFLUSH)
     delay = args.character_delay_ms / 1000.0
     deadline = time.monotonic() + args.timeout
     captured = bytearray()
     marker = f"__SERIAL_COMMAND_RETURN__:{os.getpid()}:"
     with args.output.open("wb") as stream:
         paced_write(fd, "\r", delay)
-        state = read_until(
-            fd, stream, captured,
-            (rb"stm32f746-linux login: ", rb"(?:^|[\r\n])~ # "),
-            deadline,
-        )
+        patterns = (rb"(?:^|[\r\n])[A-Za-z0-9._-]+ login: ",)
+        if not args.require_login:
+            patterns += (rb"(?:^|[\r\n])~ # ",)
+        state = read_until(fd, stream, captured, patterns, deadline)
         if state is None:
             raise SystemExit("neither login nor shell prompt was observed")
         if state == 0:
