@@ -28,12 +28,16 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--command", action="append", default=[])
     parser.add_argument("--already-in-uboot", action="store_true")
+    parser.add_argument("--wait-for-autoboot", action="store_true")
     parser.add_argument("--boot", action="store_true")
     parser.add_argument("--username", default="root")
     parser.add_argument("--password-env", default="SERIAL_CONSOLE_PASSWORD")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--character-delay-ms", type=float, default=20.0)
     args = parser.parse_args()
+
+    if args.wait_for_autoboot and not args.already_in_uboot:
+        parser.error("--wait-for-autoboot requires --already-in-uboot")
 
     if not args.device.startswith("/dev/") or not os.path.exists(args.device):
         parser.error("--device must name an existing exact /dev path")
@@ -48,8 +52,18 @@ def main():
 
     with args.output.open("wb") as stream:
         if args.already_in_uboot:
-            paced_write(fd, "\r", delay)
-            wait_for(fd, stream, UBOOT_PATTERN, deadline)
+            if args.wait_for_autoboot:
+                wait_for(
+                    fd,
+                    stream,
+                    rb"Hit SPACE in 3 seconds to stop autoboot\.",
+                    deadline,
+                )
+                paced_write(fd, " ", delay)
+                wait_for(fd, stream, UBOOT_PATTERN, deadline)
+            else:
+                paced_write(fd, "\r", delay)
+                wait_for(fd, stream, UBOOT_PATTERN, deadline)
         else:
             paced_write(fd, "\r", delay)
             captured = bytearray()
