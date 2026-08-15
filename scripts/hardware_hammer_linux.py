@@ -407,8 +407,8 @@ def scheduler_from_kernel_config(config):
     if config is None or not config.is_file():
         return "unknown"
     text = config.read_text(errors="replace")
-    for symbol in ("CONFIG_PREEMPT", "CONFIG_PREEMPT_VOLUNTARY",
-                   "CONFIG_PREEMPT_NONE"):
+    for symbol in ("CONFIG_PREEMPT_RT", "CONFIG_PREEMPT",
+                   "CONFIG_PREEMPT_VOLUNTARY", "CONFIG_PREEMPT_NONE"):
         if re.search(rf"^{symbol}=y$", text, re.M):
             return symbol
     return "unknown"
