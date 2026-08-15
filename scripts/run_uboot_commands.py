@@ -15,7 +15,7 @@ from run_serial_command import configure, paced_write, read_until
 
 LOGIN_PATTERN = rb"(?:^|[\r\n])[A-Za-z0-9._-]+ login: "
 SHELL_PATTERN = rb"(?:^|[\r\n])~ # "
-UBOOT_PATTERN = rb"(?:=>|U-Boot >) "
+UBOOT_PATTERN = rb"(?:^|[\r\n])(?:=>|U-Boot >) "
 
 
 def wait_for(fd, stream, pattern, deadline):
