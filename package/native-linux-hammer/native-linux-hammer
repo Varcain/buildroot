@@ -9,6 +9,8 @@ latency_result=/tmp/native-hammer-latency.json
 rt_scope_result=/tmp/native-hammer-rt-scope.txt
 lvgl_log=/tmp/native-hammer-lvgl.log
 lvgl_log_all=/tmp/native-hammer-lvgl-all.log
+snapshot_before=/tmp/native-hammer-snapshot-before
+snapshot_after=/tmp/native-hammer-snapshot-after
 uinput_event=/run/native-hammer-uinput.event
 uinput_control=/run/native-hammer-uinput.control
 sqlite_input=/run/native-hammer-sqlite.in
@@ -165,7 +167,8 @@ for name_path in /sys/class/input/event*/device/name; do
 done
 
 rm -f "$net_result" "$latency_result" "$rt_scope_result" \
-	"$lvgl_log" "$lvgl_log_all" "$db_errors" \
+	"$lvgl_log" "$lvgl_log_all" "$snapshot_before" "$snapshot_after" \
+	"$db_errors" \
 	/tmp/native-hammer-integrity /tmp/native-hammer-meta \
 	/tmp/native-hammer-live /tmp/native-hammer-retry-meta \
 	"$sqlite_input" "$sqlite_output"
@@ -206,9 +209,6 @@ kill -0 "$lv_pid" 2>/dev/null || {
 }
 printf 'tap 120 160 1500\n' >"$uinput_control" || exit 3
 sleep 2
-# Remember the active-player boundary without truncating a file that lvmusic
-# still has open. The active-only copy is materialized after the run.
-lvgl_start_line=$(wc -l <"$lvgl_log_all")
 
 # Coalesce any clean pages faulted while starting the player before exec needs
 # one order-6 segment for SQLite's bounded 240 KiB MEMSYS5 arena.  Keeping the
@@ -257,7 +257,13 @@ fi
 printf '__HAMMER_BEGIN__:native-linux-shell duration=%s lvmusic=%s network=%s latency=%s network_ready=1 framebuffer=%s automation_input=%s physical_input=%s\n' \
 	"$duration" "$lv_pid" "$net_pid" "$latency_mode" "$framebuffer" \
 	"$automation_input" "${physical_input:-none}"
-snapshot BEFORE
+# Writing a multi-page snapshot to the 115200-baud console would let the HTTP
+# stream run well ahead of the SQLite/scope interval. Capture both boundaries
+# into ramfs, then emit them after all measured work has stopped.
+snapshot BEFORE >"$snapshot_before"
+# Remember the exact measured LVGL window without truncating the file that
+# lvmusic still has open. The bounded copy is materialized after lvmusic exits.
+lvgl_start_line=$(wc -l <"$lvgl_log_all")
 
 # Reset only the Linux driver's statistics; TIM3 and both oscilloscope
 # waveforms remain continuous. Keep this next to the workload uptime boundary
@@ -324,13 +330,14 @@ if [ "$latency_mode" = tim3-hardware-to-sched-fifo-kthread ]; then
 		[ "$failure" = none ] && failure=latency
 	}
 fi
-snapshot AFTER
+snapshot AFTER >"$snapshot_after"
 
 # The measured interval and its process/CPU snapshot are now complete. Free
 # lvmusic's large FDPIC segment before running any post-processing utilities.
 kill "$lv_pid" 2>/dev/null
 wait "$lv_pid" 2>/dev/null
 lv_pid=
+lvgl_end_line=$(wc -l <"$lvgl_log_all")
 kill "$uinput_pid" 2>/dev/null
 wait "$uinput_pid" 2>/dev/null
 uinput_pid=
@@ -377,7 +384,8 @@ rows=$((submitted * 8))
 expected_live=$rows
 [ "$expected_live" -gt 128 ] && expected_live=128
 error_bytes=$(wc -c <"$db_errors")
-sed -n "$((lvgl_start_line + 1)),\$p" "$lvgl_log_all" >"$lvgl_log"
+sed -n "$((lvgl_start_line + 1)),${lvgl_end_line}p" \
+	"$lvgl_log_all" >"$lvgl_log"
 active_samples=$(grep -c 'sysmon: [1-9][0-9]* FPS' "$lvgl_log" 2>/dev/null)
 active_samples=${active_samples:-0}
 required_samples=30
@@ -389,6 +397,10 @@ required_samples=30
 [ "$error_bytes" -eq 0 ] || [ "$failure" != none ] || failure=sqlite-errors
 [ "$active_samples" -ge "$required_samples" ] || [ "$failure" != none ] || failure=lvgl-samples
 
+# Emit the boundary snapshots only after lvmusic, SQLite and the network stream
+# have stopped, so slow serial capture cannot alter the measured interval.
+dump_file "$snapshot_before"
+dump_file "$snapshot_after"
 printf '__HAMMER_SQLITE__:transactions=%s rows=%s meta=%s live_rows=%s retries=%s integrity=%s error=%s\n' \
 	"$submitted" "$rows" "$meta" "$live_rows" "$transaction_retries" \
 	"$integrity" "$failure"
