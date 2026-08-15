@@ -18,7 +18,7 @@ Upstream-status: Pending
 diff --git a/drivers/tty/serial/stm32-usart.c b/drivers/tty/serial/stm32-usart.c
 --- a/drivers/tty/serial/stm32-usart.c
 +++ b/drivers/tty/serial/stm32-usart.c
-@@ -827,14 +827,23 @@ static int stm32_usart_startup(struct uart_port *port)
+@@ -827,12 +827,19 @@ static int stm32_usart_startup(struct uart_port *port)
  	struct stm32_port *stm32_port = to_stm32_port(port);
  	const struct stm32_usart_offsets *ofs = &stm32_port->info->ofs;
  	const struct stm32_usart_config *cfg = &stm32_port->info->cfg;
