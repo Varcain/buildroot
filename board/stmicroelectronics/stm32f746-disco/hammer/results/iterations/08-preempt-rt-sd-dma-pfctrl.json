@@ -1,0 +1,184 @@
+{
+  "schema": "native-linux-hammer-iteration-v1",
+  "iteration": 8,
+  "name": "preempt-rt-sd-dma-pfctrl",
+  "status": "PASS",
+  "duration_s": 300,
+  "change": {
+    "description": "Return STM32 DMA2 streams 3/6 channel 4 to full-FIFO INC4 mode and add a board-opt-in MMCI peripheral-flow-controller property, matching the validated oveRTOS SD transport. Bound the NOMMU SQLite arena at 448 KiB and keep snapshots outside the measured interval.",
+    "implementation_commits": [
+      "4067f4946dbe3c9636d1b6362409fbfcfa4da82d",
+      "e7793da05c2a060756138d8e411161bf9a2217b5",
+      "900033875c402b5e29ac2b90201764a4fc67fcf6"
+    ],
+    "capture_commit": "170e66da143a7d5e61aea5487002681a6ff8c8db",
+    "cumulative_from": "07-preempt-rt-sd-dma-direct",
+    "scheduler": "CONFIG_PREEMPT_RT",
+    "sd_transfer": "DMA2 streams 3/6 channel 4, full FIFO, INC4, peripheral flow control",
+    "sqlite_arena_kib": 448
+  },
+  "constant_contract": {
+    "board": "STM32F746G-DISCO at 216 MHz",
+    "kernel": "Linux 5.15.211-rt97 ARM NOMMU FDPIC XIP from QSPI",
+    "rootfs": "read-only CramFS in QSPI",
+    "data": "VFAT on the same SD card at approximately 1.95 MHz",
+    "display": "LVGL 9.5.0, software render to /dev/fb0",
+    "latency": "TIM3 CH1 PB4/D3 hardware reference to priority-99 SCHED_FIFO kthread PG7/D4 response",
+    "workload": "lvmusic -5, SQLite 0, HTTP receive 10"
+  },
+  "artifacts": {
+    "uImage_xip": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/images/uImage.xip",
+      "bytes": 3045288,
+      "sha256": "c843ec834cb0abd354934d07c9c3e1e3e5fdfc50206922604956450e1e2d89c1"
+    },
+    "xipImage": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/images/xipImage",
+      "bytes": 3045224,
+      "sha256": "18df54d8dad0b9cc57d5878d894cc494fd8997c1a6554ffc682e2b755363b58a"
+    },
+    "dtb": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/images/stm32f746-disco-hammer.dtb",
+      "bytes": 17797,
+      "sha256": "5144ef9f9fa70c60c281f9f5bb74c032f344a44cfbe4a2dfcc739f0e772073ec"
+    },
+    "hammer_sqlite_sha256": "cac1b61a197795b06ea8a60a0df100ed8687a597e837e0cb76ae2cd12bc683b6",
+    "native_linux_hammer_sha256": "7df9bd38f66ef5bd4eb71a636a7a7831e298b419f363747adf6b9761c1ccf0de",
+    "run_wrapper_sha256": "7ecafff5ac141637030060dfba1da3a96c73649b6f7d90d5a8d7c2247410a572"
+  },
+  "configuration_sha256": {
+    "buildroot": "07d55dee4d0cbab4ee5e8e5cdc07e27e4bb2790f850ca77970f24719a178d885",
+    "linux": "e66fc59aebd24dfbc23c758b84deac0698143b3a7b60bf5e32512fb9a77d2308"
+  },
+  "boot": {
+    "status": "PASS",
+    "raw_serial_log": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-clean-reboot-boot.log",
+    "raw_serial_log_sha256": "e46f41c92b4f56921f51c7ab813fe4ae32fe65f54fc043dab63e3509a8b00460",
+    "kernel_identity": "Linux 5.15.211-rt97 #6 PREEMPT_RT",
+    "memory_available_at_kernel_boot_kib": 6708,
+    "root_mounted_at_s": 6.399878,
+    "init_started_at_s": 6.424916,
+    "dma_channels": "RX dma0chan3, TX dma0chan6",
+    "dma_fallback": false,
+    "fat_dirty_warning": false,
+    "warnings": 0
+  },
+  "fat_maintenance": {
+    "method": "dosfstools 4.2 low-memory in-place active-FAT1 repair with /data unmounted; no format, repartition, rootfs or QSPI write",
+    "checker_sha256": "e5a15c1f562a43601dc11568ed534ea2f279b22c5041335798e5004d1d1ee712",
+    "pre_repair_audit": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-readonly-audit-cleanboot.log",
+      "sha256": "b8477cb0ada537aea16eb5aa14fdb93571f34a5656ad4cb6eebdf8df2aaa8656",
+      "rc": 1,
+      "finding": "dirty bit and boot-sector backup byte 65 mismatch only; 12 files, 65/1948688 clusters"
+    },
+    "repair": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-inplace-repair.log",
+      "sha256": "596c3f94ee99b631b077d3e8b127aa0d1aa1470b95c423f5064281bd5752a827",
+      "fsck_rc": 1,
+      "fsck_rc_meaning": "filesystem corrected",
+      "wrapper_rc": 0
+    },
+    "post_repair_audit": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-postrepair-audit.log",
+      "sha256": "5a968ee47f7827303ef029e1fc8dbc01c7906753cb5129c26d346f0cf0988504",
+      "rc": 0,
+      "summary": "12 files, 65/1948688 clusters"
+    },
+    "post_benchmark": {
+      "action": "sync and clean unmount",
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/hammer-300s-postrun-clean-unmount.log",
+      "sha256": "3f8e21ad2b9bbfb8f6f55175fcb071326d75f3679739cb8c0d1bd666f84e98d6",
+      "status": "DATA_UNMOUNTED"
+    }
+  },
+  "result": {
+    "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/results/full-300s-448k-arena-v2/result.json",
+    "sha256": "7905ae9482d2f41ad30d9efb1addf6b973e797fe588a0a43764fcb7aa23628a9",
+    "raw_serial_log": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/hammer-300s-448k-arena.log",
+    "raw_serial_log_sha256": "c5f922ecdc41a16f2cea9c5a017f2fbbbfd96863f9232a2728a39bb46097badd",
+    "failures": [],
+    "sqlite": {
+      "transactions": 60,
+      "transactions_per_second": 0.186543962193757,
+      "elapsed_s": 321.64,
+      "rows": 480,
+      "meta": 480,
+      "live_rows": 128,
+      "retries": 0,
+      "integrity": "ok",
+      "error_bytes": 0
+    },
+    "network": {
+      "bytes": 5439488,
+      "elapsed_s": 302.45444421097636,
+      "mbps": 0.1438758954708749,
+      "completed": 1,
+      "early_eof": false,
+      "errors": 0
+    },
+    "lvgl": {
+      "samples": 215,
+      "active_samples": 72,
+      "fps_mean": 1.0,
+      "fps_median": 1,
+      "fps_p99": 1,
+      "refresh_ms_mean": 818.6805555555555,
+      "render_ms_mean": 745.2638888888889,
+      "render_ms_median": 736,
+      "render_ms_p99": 862,
+      "flush_ms_mean": 56.44444444444444,
+      "flush_ms_median": 55,
+      "flush_ms_p99": 72,
+      "cpu_percent_mean": 100.0
+    },
+    "scope": {
+      "elapsed_s": 322.106240289,
+      "releases": 322106,
+      "executions": 320410,
+      "missed_releases": 1696,
+      "missed_percent": 0.5265347432211757,
+      "late_finishes": 82,
+      "late_percent": 0.02545745810385401,
+      "max_consecutive_missed": 3,
+      "dispatch_min_ns": 0,
+      "dispatch_average_ns": 420241,
+      "dispatch_p99_upper_us": 1000,
+      "dispatch_p99_9_upper_us": 1000,
+      "dispatch_max_ns": 999759,
+      "irq_entry_age_max_ns": 743056,
+      "irq_signal_age_max_ns": 826296,
+      "work_average_ns": 6296,
+      "work_max_ns": 371333
+    },
+    "cpu": {
+      "overall_busy_percent": 100.0,
+      "rt_scope_percent": 30.91662629850907,
+      "lvmusic_percent": 25.367350234135316,
+      "sqlite_percent": 4.125625706442758,
+      "runner_self_percent": 3.44205823779536,
+      "runner_with_children_percent": 4.456644598740514
+    },
+    "storage_delta": {
+      "reads_completed": 332,
+      "bytes_read": 1340928,
+      "writes_completed": 3566,
+      "bytes_written": 6651392,
+      "write_ms": 826220,
+      "mounted_vfat_rw_before_and_after": true
+    }
+  },
+  "previous_valid_iteration_delta_percent": {
+    "relative_to": "01-scope-fast",
+    "sqlite_transactions_per_second": -41.08382042034574,
+    "network_mbps": -67.8212479214501,
+    "lvgl_render_ms_mean": 17.813954588138326,
+    "lvgl_flush_ms_mean": 9.355853618148702,
+    "scope_dispatch_average_ns": 3.2908772723250657,
+    "scope_missed_rate": -95.48365249099288,
+    "scope_late_rate": -84.73170835331814,
+    "scope_cpu_percent": -2.5478553414943983
+  },
+  "decision": "Retain as the accepted PREEMPT_RT plus parity-SD result. PFCTRL closes the DMA transport blocker and the full hammer contract passes, but PREEMPT_RT does not recover LXP throughput or latency on this single-core 8 MiB NOMMU platform.",
+  "interpretation": "Relative to the last valid PREEMPT_NONE scope-fast iteration, PREEMPT_RT plus the corrected DMA transport reduces the physical missed-release rate by 95.5% and late-finish rate by 84.7%, while SQLite throughput falls 41.1% and network throughput falls 67.8%. Because iterations 3 through 7 were invalid storage/allocation experiments, the accepted result measures the cumulative RT and SD corrections rather than an isolated PFCTRL effect."
+}

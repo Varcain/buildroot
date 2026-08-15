@@ -6,12 +6,14 @@ hammer proof of concept.  It deliberately leaves the stock
 acceptance gates are in `../native-linux-hammer-plan.md`.
 
 The current hardware closure status is machine-readable in
-`parity-status-20260814.json`. Native Linux boots deterministically from QSPI,
-the in-place FAT repair is complete, sustained Linux writes pass, and the
-physical D3/D4 latency driver is live. The `CONFIG_PREEMPT_NONE` five-minute
-run passes the full contract. Remaining gaps are comparison qualifications,
-an external oscilloscope trace, optional `CONFIG_PREEMPT` follow-up, and the
-Pi-to-board Dropbear encrypted-stream fault; none blocks the accepted baseline.
+`parity-status-20260815.json`. Native Linux boots deterministically from QSPI,
+the in-place FAT repair is complete, sustained DMA-backed Linux writes pass,
+and the physical D3/D4 latency driver is live. The `CONFIG_PREEMPT_NONE`,
+`CONFIG_PREEMPT`, and corrected `CONFIG_PREEMPT_RT` five-minute iterations are
+recorded separately; the accepted current PREEMPT_RT run passes the full
+contract. The principal comparison gap is Linux software rendering versus LXP
+DMA2D. An external oscilloscope trace and Pi-to-board Dropbear repair remain
+useful follow-ups but do not invalidate the serial-captured benchmark.
 
 The memory-feasible hammer boot keeps U-Boot in the STM32's 1 MiB internal
 flash, executes the Linux kernel directly from the 16 MiB QSPI aperture, and
@@ -30,7 +32,8 @@ root filesystem to SD. The internal-flash XIP kernel cannot fit.
 From the `buildroot2` root:
 
 ```sh
-make O=output-hammer-qspi-xip stm32f746_disco_hammer_qspi_xip_defconfig
+make O=output-hammer-qspi-xip \
+    stm32f746_disco_hammer_qspi_xip_preempt_rt_defconfig
 make O=output-hammer-qspi-xip \
     BUILD_DIR=/tmp/hirioic-hammer-qspi-xip.F2VnP2/build \
     TARGET_DIR=/tmp/hirioic-hammer-qspi-xip.F2VnP2/target \
@@ -39,10 +42,12 @@ make O=output-hammer-qspi-xip \
     -j"$(nproc)"
 ```
 
-Those are the exact directories used for the accepted image. A fresh build
-should choose a new private `/tmp` prefix and use the same four overrides for
-every make invocation; output symlinks and result metadata must point at that
-one prefix.
+Those `/tmp` directories identify the proven build tree. A fresh build should
+choose a new private `/tmp` prefix and use the same four overrides for every
+make invocation; output symlinks and result metadata must point at that one
+prefix. Keep `stm32f746_disco_hammer_qspi_xip_defconfig` for the historical
+PREEMPT_NONE baseline and the `_preempt_defconfig` profile for the measured
+generic-preemption variant.
 
 The relevant outputs are:
 
@@ -63,15 +68,15 @@ The combined image layout is:
 | `0x100000` | `0x90100000` | to `0x800000` | XIP kernel |
 | `0x800000` | `0x90800000` | 8 MiB | read-only XIP CramFS root |
 
-The baseline kernel remains `CONFIG_PREEMPT_NONE`. The current parity profile
-caps the SD bus at 2 MHz; debugfs reports a requested 2,000,000 Hz and an
-actual 1,950,000 Hz clock. The earlier accepted 24 MHz run remains useful only
-as a historical diagnostic. A distinct
-`stm32f746_disco_hammer_qspi_xip_preempt_defconfig` exists for the later
-`CONFIG_PREEMPT` follow-up and must not replace the baseline. LVGL 9.5.0 uses RGB565,
-480x272, a 33 ms refresh period, a full-height draw buffer, and console
-performance logging.  Native Linux uses software drawing and fbdev `pwrite`;
-it does not use DMA2D.
+The stock-comparable baseline remains `CONFIG_PREEMPT_NONE`; PREEMPT and
+PREEMPT_RT are separately identified experiments and never replace its stored
+result. The current accepted profile is
+`stm32f746_disco_hammer_qspi_xip_preempt_rt_defconfig`. It caps the SD bus at
+2 MHz; debugfs reports a requested 2,000,000 Hz and an actual 1,950,000 Hz
+clock. The earlier accepted 24 MHz run remains a historical diagnostic. LVGL
+9.5.0 uses RGB565, 480x272, a 33 ms refresh period, a full-height draw buffer,
+and console performance logging. Native Linux uses software drawing and fbdev
+`pwrite`; it does not use DMA2D.
 
 The STM32F7 MPU is part of the boot contract. U-Boot temporarily maps the
 QSPI aperture as executable Normal, non-cacheable memory in region 3 and
@@ -93,29 +98,31 @@ volatile ramfs at `/data`; the benchmark preflight rejects that fallback.
 For the workload, `/data` must be an explicitly identified VFAT partition.
 The init script accepts partition 1 on a data-only card or partition 2 on the
 older SD-root layout. The current card is `/dev/mmcblk0p1`, a 14.9 GiB
-data-only FAT32 partition, at an actual 1.95 MHz in PIO mode. An explicitly
-authorized in-place recovery selected FAT1 through standard FAT32 ExtFlags,
-repaired it with the bounded-memory maintenance image, and did not format or
-repartition the card. After the accepted run, Linux still found the primary
-boot dirty byte set (`65:01/00` versus the backup). A compact dosfstools 4.2
-checker and matching libc were staged in `/tmp` through the Pi, so closing the
-flag required no QSPI update. The full precheck found no chain or directory
-damage; the repair touched active FAT1 only. The final read-only check reports
-`7 files, 35/1948688 clusters` with return code zero. The next boot mounted
-VFAT read-write without the dirty-volume warning, and the retained database
-reported integrity `ok`, 128 live rows, and metadata 664. A reversible 256 KiB
-create/checksum/remount/delete test and the five-minute benchmark also pass.
-Evidence is under `output-hammer-qspi-xip-maintenance/logs/`. Any future
-format, repartition, or whole-device image still requires exact-device
-discovery, backup, and explicit confirmation.
+data-only FAT32 partition, at an actual 1.95 MHz. The accepted PREEMPT_RT
+profile uses STM32 DMA2 streams 3 and 6, channel 4, full FIFO, INC4, and
+peripheral flow control, matching the validated oveRTOS transport controls. It
+retains the common one-sector request cap. An explicitly authorized in-place
+recovery selected FAT1 through standard FAT32 ExtFlags, repaired it with the
+bounded-memory maintenance image, and did not format or repartition the card.
+A compact dosfstools 4.2 checker and matching libc were staged in `/tmp`
+through the Pi, so closing the dirty flag required no QSPI update. The
+clean-boot precheck found no chain or directory damage; the repair touched
+active FAT1 only. The final read-only check reports `12 files, 65/1948688
+clusters` with return code zero. The next boot had no dirty-volume warning, the
+five-minute benchmark passed SQLite integrity and all row invariants, and
+`/data` was then synced and cleanly unmounted. Evidence is under
+`output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/`. Any future format,
+repartition, or whole-device image still requires exact-device discovery,
+backup, and explicit confirmation.
 
 BusyBox has no FAT consistency checker. The maintenance profile therefore
 enables dosfstools `fsck.fat`, disables its large static iconv tables, and uses
-an 8,192-entry bounded ownership table. A clean build produced an 80,764-byte
-checker and a 1,761,280-byte CramFS; moving the libiconv dependency under the
-disabled charset option removed about 930 KiB of unused target payload.
-Building or RAM-staging these files does
-not program QSPI. Prefer `/tmp` or `/data` staging for runtime scripts and
+an 8,192-entry bounded ownership table. The checker used for the final repair
+is 80,888 bytes with SHA-256
+`e5a15c1f562a43601dc11568ed534ea2f279b22c5041335798e5004d1d1ee712`.
+Moving the libiconv dependency under the disabled charset option removed about
+930 KiB of unused target payload. Building or RAM-staging these files does not
+program QSPI. Prefer `/tmp` or `/data` staging for runtime scripts and
 diagnostics; reprogram QSPI only when a changed kernel, device tree, or rootfs
 must become the booted artifact.
 
@@ -235,13 +242,14 @@ JSON.  The validator requires the exact SQLite row/meta/live-row invariants,
 zero SQLite error output, a complete deadline-length stream, enough active
 LVGL samples, and consistent latency release accounting.
 
-The accepted 2 MHz-profile physical-scope baseline is:
-`output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-final-300s-v2-20260814/result.json`.
-It archives the exact kernel/rootfs Buildroot configurations, Linux, BusyBox,
-U-Boot and LVGL configurations, and hashes the hybrid QSPI deployment rather
-than a stale combined image. The exact raw benchmark and full boot logs are
-under `output-hammer-qspi-xip-maintenance/logs/` and are listed in
-`comparison.md`.
+The accepted current 2 MHz-profile physical-scope result is:
+`output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/results/full-300s-448k-arena-v2/result.json`.
+It archives the exact Buildroot and Linux configurations and hashes the
+deployed kernel, DTB, SQLite helper, runner and wrapper. The result, raw serial
+log, clean boot, FAT repair and post-run unmount hashes are repeated in
+`results/iterations/08-preempt-rt-sd-dma-pfctrl.json`. Historical baseline and
+failed intermediate experiments remain under `results/iterations/` and are
+summarized in `comparison.md`.
 
 The current latency implementation is a kernel driver with the same physical
 contract as LXP + oveRTOS: TIM3 generates a 1 kHz, 50 us high pulse on Arduino

@@ -1,103 +1,125 @@
 {
-  "schema": 3,
+  "schema": 4,
   "status": "PASS_WITH_PARITY_GAPS",
   "directly_comparable": false,
-  "captured_date": "2026-08-14",
+  "captured_date": "2026-08-15",
   "native_linux": {
-    "result_path": "output-hammer-qspi-xip-maintenance/hammer-results/native-linux-pio-poll-scope-v5-final-300s-v2-20260814/result.json",
-    "raw_log_path": "output-hammer-qspi-xip-maintenance/logs/native-linux-pio-poll-scope-v5-hammer-final-300s.log",
-    "boot_log_path": "output-hammer-qspi-xip-maintenance/logs/native-linux-pio-poll-scope-v5-full-boot.log",
+    "iteration": "08-preempt-rt-sd-dma-pfctrl",
+    "result_path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/results/full-300s-448k-arena-v2/result.json",
+    "result_sha256": "7905ae9482d2f41ad30d9efb1addf6b973e797fe588a0a43764fcb7aa23628a9",
+    "raw_log_path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/hammer-300s-448k-arena.log",
+    "raw_log_sha256": "c5f922ecdc41a16f2cea9c5a017f2fbbbfd96863f9232a2728a39bb46097badd",
+    "boot_log_path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-clean-reboot-boot.log",
     "status": "PASS",
     "returncode": 0,
     "requested_duration_s": 300,
-    "scheduler": "CONFIG_PREEMPT_NONE",
-    "board_clock_hz": 216000000,
+    "identity": {
+      "kernel": "Linux 5.15.211-rt97 #6 PREEMPT_RT",
+      "uboot": "2026.07",
+      "buildroot": "2026.08-git",
+      "lvgl": "9.5.0",
+      "architecture": "ARM Cortex-M7 NOMMU FDPIC",
+      "board_clock_hz": 216000000,
+      "scheduler": "CONFIG_PREEMPT_RT"
+    },
+    "boot": {
+      "memory_available_at_kernel_boot_kib": 6708,
+      "root_mounted_at_s": 6.399878,
+      "init_started_at_s": 6.424916,
+      "mem_free_at_measurement_boundary_kib": 468,
+      "mem_available_at_measurement_boundary_kib": 1524
+    },
     "root": "read-only XIP CramFS at QSPI 0x90800000",
     "data": "VFAT /dev/mmcblk0p1 on data-only SD",
     "sd_bus_requested_hz": 2000000,
     "sd_bus_actual_hz": 1950000,
-    "sd_transfer": "four-bit, one-sector, CPU-polled PL180 PIO writes",
-    "rendering": "software LVGL draw + Linux fbdev pwrite; no DMA2D",
+    "sd_transfer": "four-bit, one-sector MMCI requests using DMA2 streams 3/6 channel 4, full FIFO, INC4 and peripheral flow control",
+    "rendering": "software LVGL draw plus Linux fbdev pwrite; no DMA2D",
     "sqlite": {
-      "transactions": 83,
-      "elapsed_s": 302.07,
-      "transactions_per_second": 0.27477074850200284,
-      "rows": 664,
-      "meta": 664,
+      "transactions": 60,
+      "elapsed_s": 321.64,
+      "transactions_per_second": 0.186543962193757,
+      "rows": 480,
+      "meta": 480,
       "live_rows": 128,
       "retries": 0,
       "integrity": "ok",
       "error_bytes": 0
     },
     "network": {
-      "bytes": 15597568,
-      "elapsed_s": 300.3820557836443,
-      "mbps": 0.41540611896562646,
+      "bytes": 5439488,
+      "elapsed_s": 302.45444421097636,
+      "mbps": 0.1438758954708749,
       "completed": 1,
-      "errors": 0
+      "errors": 0,
+      "early_eof": false
     },
     "lvgl": {
-      "active_samples": 57,
+      "samples": 215,
+      "active_samples": 72,
       "fps_mean": 1.0,
       "fps_median": 1,
       "fps_p99": 1,
-      "render_ms_mean": 822.2456140350877,
-      "render_ms_median": 833,
-      "render_ms_p99": 889,
-      "flush_ms_mean": 63.0,
-      "flush_ms_median": 64,
-      "flush_ms_p99": 76,
+      "refresh_ms_mean": 818.6805555555555,
+      "render_ms_mean": 745.2638888888889,
+      "render_ms_median": 736,
+      "render_ms_p99": 862,
+      "flush_ms_mean": 56.44444444444444,
+      "flush_ms_median": 55,
+      "flush_ms_p99": 72,
       "cpu_percent_mean": 100.0
     },
     "cpu": {
       "overall_busy_percent": 100.0,
-      "rt_scope_percent": 41.96703391536979,
-      "lvmusic_percent": 28.37499640422288,
-      "sqlite_percent": 4.1423352414923915,
-      "runner_percent": 3.762621177688922
+      "rt_scope_percent": 30.91662629850907,
+      "lvmusic_percent": 25.367350234135316,
+      "sqlite_percent": 4.125625706442758,
+      "runner_self_percent": 3.44205823779536,
+      "runner_with_children_percent": 4.456644598740514
     },
     "storage_delta": {
-      "reads_completed": 5,
-      "bytes_read": 2560,
-      "writes_completed": 4769,
-      "bytes_written": 9180160,
-      "write_ms": 1267376,
+      "reads_completed": 332,
+      "bytes_read": 1340928,
+      "writes_completed": 3566,
+      "bytes_written": 6651392,
+      "write_ms": 826220,
       "mounted_vfat_rw_before_and_after": true
     },
     "post_run_storage_proof": {
-      "repair": "RAM-staged dosfstools 4.2; active FAT1 only; no QSPI write",
-      "final_fsck_rc": 0,
-      "final_fsck_summary": "7 files, 35/1948688 clusters",
+      "pre_run_repair": "RAM-staged dosfstools 4.2; active FAT1 only; no QSPI write",
+      "post_repair_fsck_rc": 0,
+      "post_repair_fsck_summary": "12 files, 65/1948688 clusters",
       "clean_reboot_warning_absent": true,
-      "mounted_vfat_rw": true,
       "sqlite_integrity": "ok",
-      "sqlite_live_rows": 128,
-      "sqlite_meta": 664
+      "post_run_state": "synced and unmounted"
     },
     "latency": {
-      "measurement": "TIM3/PB4 hardware release to SCHED_FIFO kernel thread/PG7",
+      "measurement": "TIM3/PB4 hardware release to SCHED_FIFO priority-99 kernel thread/PG7",
       "physical_reference": true,
-      "elapsed_s": 302.40410846,
-      "releases": 302404,
-      "executions": 268598,
-      "missed": 33805,
-      "missed_percent": 11.178754249282417,
-      "late_finishes": 5476,
-      "late_percent": 1.8108226081665586,
-      "pending_at_snapshot": 1,
+      "elapsed_s": 322.106240289,
+      "releases": 322106,
+      "executions": 320410,
+      "missed": 1696,
+      "missed_percent": 0.5265347432211757,
+      "late_finishes": 82,
+      "late_percent": 0.02545745810385401,
       "dispatch_min_ns": 0,
-      "dispatch_average_ns": 448278,
+      "dispatch_average_ns": 420241,
       "dispatch_p99_upper_us": 1000,
       "dispatch_p99_9_upper_us": 1000,
-      "dispatch_max_ns": 999870,
-      "max_consecutive_missed": 12,
-      "oldest_release_age_max_ns": 12472741
+      "dispatch_max_ns": 999759,
+      "max_consecutive_missed": 3
     },
     "deployed_artifacts": {
-      "uImage_xip_sha256": "19524071111b8eb4884a1185b3dde8a96cc17452de6c6a517cd744a10b827e86",
-      "dtb_sha256": "c3416eea2021bf580c81d862e650c010a0e40999cdd1ab396a5ce9dab5bd8972",
+      "uImage_xip_sha256": "c843ec834cb0abd354934d07c9c3e1e3e5fdfc50206922604956450e1e2d89c1",
+      "xipImage_sha256": "18df54d8dad0b9cc57d5878d894cc494fd8997c1a6554ffc682e2b755363b58a",
+      "dtb_sha256": "5144ef9f9fa70c60c281f9f5bb74c032f344a44cfbe4a2dfcc739f0e772073ec",
       "rootfs_cramfs_sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58",
       "uboot_sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
+    },
+    "configuration_sha256": {
+      "buildroot": "07d55dee4d0cbab4ee5e8e5cdc07e27e4bb2790f850ca77970f24719a178d885",
+      "linux": "e66fc59aebd24dfbc23c758b84deac0698143b3a7b60bf5e32512fb9a77d2308"
     }
   },
   "primary_lxp_reference": {
@@ -105,7 +127,7 @@
     "status": "PASS",
     "identity": "Linux overtos 6.1.0 FreeRTOS V11.2.0 ove-fa0ec69 lxp-1fa50f8 armv7l",
     "requested_duration_s": 300,
-    "clock_attestation": "the JSON does not encode the SD clock; the preceding complete lineage is explicitly named language-hammer-20260811-final-2mhz",
+    "clock_attestation": "The JSON does not encode the SD clock; the preceding complete lineage is explicitly named language-hammer-20260811-final-2mhz.",
     "sqlite": {
       "transactions": 164,
       "elapsed_s": 300.0,
@@ -153,29 +175,103 @@
       "after_snapshot_dispatch_p99_upper_us": 20,
       "after_snapshot_dispatch_p99_9_upper_us": 100,
       "after_snapshot_dispatch_max_ns": 96019
+    },
+    "syscall_instrumentation": {
+      "delta_svc_calls": 171745,
+      "after_snapshot_svc_average_cycles": 5260,
+      "after_snapshot_svc_max_cycles": 5771,
+      "counter_hz": 216000000,
+      "inferred_average_interval_seconds": 4.182308796296296,
+      "inferred_single_cpu_percent_over_300s": 1.3941029320987655,
+      "caveat": "The estimate multiplies the interval call count by the cumulative after-snapshot average. It is useful for order of magnitude, not exact accounting, and may include coordinator work charged outside the measured SVC body."
     }
   },
   "directional_deltas_percent": {
-    "linux_sqlite_transactions_per_second": -49.737058200853134,
-    "linux_network_mbps": -70.21125597055754,
+    "linux_sqlite_transactions_per_second": -65.87610447675176,
+    "linux_network_mbps": -89.68266949735676,
     "linux_fps_mean": -69.60591133004925,
-    "linux_render_ms_mean": 240.36587244781998,
-    "linux_flush_ms_mean": 797.2991689750693,
-    "linux_dispatch_average_ratio_to_lxp_after_snapshot": 46.64218083446051
+    "linux_render_ms_mean": 208.49954005920338,
+    "linux_flush_ms_mean": 703.9294141787217,
+    "linux_dispatch_average_ratio_to_lxp_after_snapshot": 43.72500260118614
   },
+  "native_iteration_outcomes": [
+    {
+      "iteration": 1,
+      "name": "scope-fast",
+      "scheduler": "CONFIG_PREEMPT_NONE",
+      "status": "PASS",
+      "sqlite_transactions_per_second": 0.3166260329924327,
+      "network_mbps": 0.44711459014839006,
+      "missed_percent": 11.658419600597332
+    },
+    {
+      "iteration": 2,
+      "name": "preempt",
+      "scheduler": "CONFIG_PREEMPT",
+      "status": "PASS",
+      "sqlite_transactions_per_second": 0.26137811611722805,
+      "network_mbps": 0.23218292975707505,
+      "missed_percent": 7.48665894218059
+    },
+    {
+      "iteration": 3,
+      "name": "preempt-rt",
+      "scheduler": "CONFIG_PREEMPT_RT",
+      "status": "FAIL_SMOKE",
+      "reason": "NOMMU SQLite arena allocation and PREEMPT_RT MMCI write correctness"
+    },
+    {
+      "iteration": 4,
+      "name": "preempt-rt-mmci-threaded",
+      "scheduler": "CONFIG_PREEMPT_RT",
+      "status": "FAIL_STORAGE",
+      "reason": "corrupt PIO write readback and block errors"
+    },
+    {
+      "iteration": 5,
+      "name": "preempt-rt-mmci-hardirq",
+      "scheduler": "CONFIG_PREEMPT_RT",
+      "status": "FAIL_STORAGE_STALL",
+      "reason": "first fsck read stalled"
+    },
+    {
+      "iteration": 6,
+      "name": "preempt-rt-sd-dma-full-fifo",
+      "scheduler": "CONFIG_PREEMPT_RT",
+      "status": "FAIL_DMA_FALLBACK",
+      "reason": "DMA receive tail caused MMCI fallback"
+    },
+    {
+      "iteration": 7,
+      "name": "preempt-rt-sd-dma-direct",
+      "scheduler": "CONFIG_PREEMPT_RT",
+      "status": "FAIL_DMA_FALLBACK",
+      "reason": "direct mode retained the DMA receive tail"
+    },
+    {
+      "iteration": 8,
+      "name": "preempt-rt-sd-dma-pfctrl",
+      "scheduler": "CONFIG_PREEMPT_RT",
+      "status": "PASS",
+      "sqlite_transactions_per_second": 0.186543962193757,
+      "network_mbps": 0.1438758954708749,
+      "missed_percent": 0.5265347432211757
+    }
+  ],
   "parity_gaps": [
     {
       "id": "rendering",
       "bias": "LXP",
       "linux": "software LVGL drawing and fbdev pwrite",
-      "lxp": "DMA2D draw and framebuffer blit"
+      "lxp": "DMA2D draw and framebuffer blit",
+      "consequence": "This remains the largest known implementation mismatch and consumes CPU needed by all concurrent work."
     },
     {
       "id": "sd-transfer-engine",
-      "bias": "LXP",
-      "linux": "one-sector CPU-polled PIO writes at 1.95 MHz",
-      "lxp": "engine-specific DMA/SDMMC path",
-      "consequence": "Linux deliberately holds the only CPU while filling each write FIFO"
+      "bias": "substantially closed",
+      "linux": "DMA2 streams 3/6 channel 4, full FIFO, INC4, PFCTRL, one-sector request cap",
+      "lxp": "same STM32 DMA resources and transfer controls",
+      "consequence": "Driver architecture and accounting still differ, but Linux no longer uses CPU-polled PIO."
     },
     {
       "id": "lxp-sd-clock-evidence",
@@ -184,44 +280,50 @@
       "lxp": "primary clean-run JSON omits the SD clock; the immediately preceding nine-run result set is explicitly 2 MHz"
     },
     {
-      "id": "personality",
-      "bias": "Linux",
-      "linux": "native syscalls",
-      "lxp": "guest/coordinator syscall path"
+      "id": "syscall-path",
+      "bias": "small or indeterminate; likely Linux",
+      "linux": "native Linux system-call entry and implementation",
+      "lxp": "Linux-ABI guest request crosses into the LXP coordinator/host implementation",
+      "evidence": "LXP counted 171745 SVC calls; 5260 cycles average at 216 MHz implies approximately 4.18 seconds or 1.39% of one CPU over 300 seconds under a simple attribution model.",
+      "consequence": "The crossing is real, but the measured order of magnitude cannot explain the observed 2.9x SQLite, 9.7x network, or 3.3x FPS advantage for LXP. Do not treat syscall path alone as a material Linux advantage."
     },
     {
       "id": "root-format",
       "bias": "indeterminate",
       "linux": "QSPI XIP CramFS",
-      "lxp": "QSPI personality CPIO/rootfs"
+      "lxp": "QSPI personality CPIO/rootfs",
+      "consequence": "Instruction fetch, lookup and memory pressure differ; neither benchmark database is on root."
     },
     {
       "id": "scheduler-object",
-      "bias": "indeterminate",
-      "linux": "priority-99 SCHED_FIFO kernel thread on PREEMPT_NONE Linux",
+      "bias": "LXP for measured latency",
+      "linux": "priority-99 SCHED_FIFO kernel thread on PREEMPT_RT Linux",
       "lxp": "critical-priority portable host task",
-      "physical_contract": "both use TIM3 CH1 on Arduino D3/PB4 and response GPIO on Arduino D4/PG7"
+      "physical_contract": "both use TIM3 CH1 on Arduino D3/PB4 and response GPIO on Arduino D4/PG7",
+      "consequence": "PREEMPT_RT reduces Linux misses greatly but its mean dispatch remains 43.7 times the LXP after-snapshot mean."
     },
     {
-      "id": "sqlite-process-model",
+      "id": "sqlite-memory-model",
       "bias": "indeterminate",
-      "linux": "persistent fixed-heap SQLite worker",
-      "lxp": "reference personality-side shell path"
+      "linux": "persistent worker with a 448 KiB fixed heap required by 8 MiB NOMMU contiguous-allocation limits",
+      "lxp": "reference personality-side shell path",
+      "consequence": "SQL, durability, transaction and validation rules match; allocator/process overhead does not."
     },
     {
       "id": "scope-instrument",
       "bias": "none",
-      "detail": "both Linux waveforms are generated continuously, but no USB/SCPI oscilloscope trace was captured"
+      "detail": "Both Linux waveforms are generated continuously, but no USB/SCPI oscilloscope trace was captured."
     },
     {
       "id": "administrative-ssh",
       "bias": "none",
-      "detail": "the odroid-resident key reaches the Pi and Pi-to-board ICMP is clean, but Dropbear's encrypted stream corrupts after negotiation; serial captured the accepted run"
+      "detail": "The benchmark used reliable serial capture; Dropbear encrypted-stream corruption remains an administration issue only."
     }
   ],
   "remaining": [
-    "capture and archive an external two-channel oscilloscope trace if an instrument interface becomes available",
-    "run CONFIG_PREEMPT only as a separately identified optional follow-up; it is not part of the requested PREEMPT_NONE baseline",
+    "port or enable STM32 DMA2D in the native Linux LVGL path and rerun before calling GUI results directly comparable",
+    "capture and archive an external two-channel Arduino D3/D4 oscilloscope trace if an instrument interface becomes available",
+    "embed the primary LXP SD clock in a fresh strict-contract result or rerun it with explicit clock attestation",
     "diagnose Pi-to-board Dropbear encrypted-stream corruption only if SSH administration is required"
   ]
 }

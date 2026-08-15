@@ -1,0 +1,197 @@
+{
+  "status": "PREEMPT_RT_PASS_WITH_DOCUMENTED_PARITY_GAPS",
+  "captured_at": "2026-08-15T20:25:56.735502+00:00",
+  "source_branch": "linux-kernel-hammer-poc",
+  "source_commit_at_capture": "170e66da143a7d5e61aea5487002681a6ff8c8db",
+  "scheduler": "CONFIG_PREEMPT_RT",
+  "board": {
+    "model": "STM32F746G-DISCO",
+    "system_clock_hz": 216000000,
+    "memory_bytes": 8388608,
+    "boot": "U-Boot in internal flash; Linux XIP and read-only CramFS in QSPI",
+    "boot_uses_sd": false,
+    "ethernet": "172.1.1.2/24, 100baseT full duplex",
+    "framebuffer": "stmdrmfb",
+    "touch": "generic ft5x06 (51)",
+    "post_test_state": "serial shell; /data synced and unmounted"
+  },
+  "deployed_images": {
+    "xip_kernel_uimage": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/images/uImage.xip",
+      "qspi_header_address": "0x900fffc0",
+      "qspi_entry_address": "0x90100000",
+      "bytes": 3045288,
+      "sha256": "c843ec834cb0abd354934d07c9c3e1e3e5fdfc50206922604956450e1e2d89c1"
+    },
+    "device_tree": {
+      "path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/images/stm32f746-disco-hammer.dtb",
+      "qspi_offset": "0x000e0000",
+      "bytes": 17797,
+      "sha256": "5144ef9f9fa70c60c281f9f5bb74c032f344a44cfbe4a2dfcc739f0e772073ec"
+    },
+    "rootfs_cramfs": {
+      "path": "output-hammer-qspi-xip/images/rootfs.cramfs",
+      "qspi_address": "0x90800000",
+      "bytes": 4169728,
+      "sha256": "120f5940b92f56dca11a63e1e9f88e90c3aa2d108e39451e366fe1e2aac9bd58"
+    },
+    "uboot_internal_flash": {
+      "path": "output-hammer-qspi-xip/images/u-boot.bin",
+      "bytes": 370888,
+      "sha256": "5fa183ed290817dc7dad60de43c9bd27192c240508142820ccbbad3644d4bfc9"
+    }
+  },
+  "configuration_sha256": {
+    "buildroot": "07d55dee4d0cbab4ee5e8e5cdc07e27e4bb2790f850ca77970f24719a178d885",
+    "linux": "e66fc59aebd24dfbc23c758b84deac0698143b3a7b60bf5e32512fb9a77d2308"
+  },
+  "storage": {
+    "data_device": "/dev/mmcblk0p1",
+    "data_filesystem": "vfat",
+    "data_capacity_gib": 14.9,
+    "requested_clock_hz": 2000000,
+    "actual_clock_hz": 1950000,
+    "bus_width_bits": 4,
+    "driver": "mmci-pl18x with STM32 DMA2",
+    "request_limit_bytes": 512,
+    "dma": {
+      "rx": "DMA2 stream 3 channel 4",
+      "tx": "DMA2 stream 6 channel 4",
+      "fifo": "full",
+      "burst": "INC4",
+      "flow_controller": "peripheral",
+      "matches_overtos_transport_controls": true,
+      "fallback_observed": false
+    },
+    "consistent": true,
+    "mounted_rw_before_and_after_benchmark": true,
+    "post_test_mounted": false,
+    "repair": {
+      "method": "in-place dosfstools 4.2 low-memory fsck using explicitly selected active FAT1; no format or repartition",
+      "execution": "checker and matching uClibc staged in /tmp from the Pi; no QSPI write",
+      "checker_sha256": "e5a15c1f562a43601dc11568ed534ea2f279b22c5041335798e5004d1d1ee712",
+      "pre_repair_check": "dirty bit and primary/backup byte 65 mismatch; 12 files, 65/1948688 clusters",
+      "pre_repair_check_rc": 1,
+      "repair_rc": 1,
+      "repair_rc_meaning": "filesystem corrected",
+      "final_read_only_check": "/dev/mmcblk0p1: 12 files, 65/1948688 clusters",
+      "final_fsck_rc": 0,
+      "clean_reboot_warning_absent": true,
+      "post_benchmark": "sync and clean unmount"
+    }
+  },
+  "physical_scope": {
+    "implemented": true,
+    "measurement": "tim3-hardware-to-sched-fifo-kthread",
+    "ch1": "Arduino D3 / PB4 / TIM3_CH1",
+    "ch1_period_us": 1000,
+    "ch1_high_us": 50,
+    "ch2": "Arduino D4 / PG7 GPIO",
+    "timer_phase_hz": 54000000,
+    "thread_policy": "SCHED_FIFO",
+    "thread_priority": 99,
+    "work_iterations": 512,
+    "calculation": "state = state * 1664525 + 1013904223",
+    "matches_lxp_physical_contract": true,
+    "instrument_interface_enumerated": false,
+    "instrument_trace_captured": false,
+    "pin_name_warning": "Arduino D3/D4 are PB4/PG7; they are not MCU PD3/PD4"
+  },
+  "accepted_300s": {
+    "result_path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/results/full-300s-448k-arena-v2/result.json",
+    "result_sha256": "7905ae9482d2f41ad30d9efb1addf6b973e797fe588a0a43764fcb7aa23628a9",
+    "serial_path": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/hammer-300s-448k-arena.log",
+    "serial_sha256": "c5f922ecdc41a16f2cea9c5a017f2fbbbfd96863f9232a2728a39bb46097badd",
+    "status": "PASS",
+    "returncode": 0,
+    "sqlite_transactions": 60,
+    "sqlite_rows": 480,
+    "sqlite_meta": 480,
+    "sqlite_live_rows": 128,
+    "sqlite_integrity": "ok",
+    "sqlite_transactions_per_second": 0.186543962193757,
+    "network_bytes": 5439488,
+    "network_elapsed_s": 302.45444421097636,
+    "network_mbps": 0.1438758954708749,
+    "lvgl_active_samples": 72,
+    "scope_elapsed_s": 322.106240289,
+    "scope_releases": 322106,
+    "scope_executions": 320410,
+    "scope_missed_releases": 1696,
+    "scope_missed_percent": 0.5265347432211757,
+    "scope_late_finishes": 82,
+    "scope_late_percent": 0.02545745810385401,
+    "scope_dispatch_average_ns": 420241,
+    "scope_dispatch_p99_ceiling_us": 1000,
+    "scope_dispatch_p999_ceiling_us": 1000,
+    "scope_dispatch_max_ns": 999759
+  },
+  "lxp_reference": {
+    "path": "/home/varcain/projects/private/hIRoic/oveRTOS/output/hammer-full-clean-sd-20260812/freertos-shell.json",
+    "status": "PASS",
+    "identity": "FreeRTOS V11.2.0 ove-fa0ec69 lxp-1fa50f8",
+    "sqlite_transactions_per_second": 0.5466666666666666,
+    "network_mbps": 1.3945069941688362,
+    "lvgl_fps_mean": 3.2901134521880064,
+    "scope_missed": 0,
+    "scope_late_finishes": 0,
+    "scope_dispatch_average_ns_after_snapshot": 9611
+  },
+  "parity": {
+    "sd_dma_transport": "substantially closed",
+    "physical_scope_generator": "closed; external capture outstanding",
+    "workload_contract": "closed",
+    "fat_data_filesystem": "closed",
+    "duration": "closed",
+    "rendering": "open; Linux software/fbdev versus LXP DMA2D",
+    "scheduler_object": "open; PREEMPT_RT FIFO kthread versus oveRTOS critical host task",
+    "root_format": "open; Linux XIP CramFS versus personality CPIO/rootfs",
+    "lxp_primary_sd_clock_attestation": "open",
+    "administrative_ssh": "open but no benchmark bias"
+  },
+  "restoration": {
+    "internal_flash": {
+      "effect": "replace U-Boot with the verified FreeRTOS oveRTOS firmware",
+      "precheck": "test -x /home/varcain/projects/private/hIRoic/oveRTOS/output/stm32f746/freertos/linux_interop/flash",
+      "command": "cd /home/varcain/projects/private/hIRoic/oveRTOS && output/stm32f746/freertos/linux_interop/flash"
+    },
+    "qspi": {
+      "effect": "destructive replacement of the native Linux QSPI contents with the regular LXP rootfs",
+      "requires_confirmation": true,
+      "command": "cd /home/varcain/projects/private/hIRoic/oveRTOS && boards/stm32f746g-discovery/freertos/flash-qspi.sh /home/varcain/projects/private/hIRoic/buildroot/output/images/rootfs.cpio"
+    },
+    "sd": {
+      "current_state": "data-only FAT partition intact and unmounted; no rewrite required for LXP",
+      "native_linux_mount": "mount -t vfat -o rw,nosuid,nodev,noexec,noatime,flush,errors=remount-ro /dev/mmcblk0p1 /data",
+      "stock_sd_image": "Only if explicitly required: identify the exact removable device with lsblk, unmount, obtain confirmation, then dd output/images/sdcard.img to that exact device."
+    }
+  },
+  "evidence": {
+    "iteration_record": "board/stmicroelectronics/stm32f746-disco/hammer/results/iterations/08-preempt-rt-sd-dma-pfctrl.json",
+    "boot_identity": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-clean-reboot-boot.log",
+    "fat_precheck": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-readonly-audit-cleanboot.log",
+    "fat_repair": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-inplace-repair.log",
+    "fat_final_audit": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/fat-pre-300-postrepair-audit.log",
+    "accepted_result": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/results/full-300s-448k-arena-v2/result.json",
+    "post_run_unmount": "output-hammer-iterations/08-preempt-rt-sd-dma-pfctrl/logs/hammer-300s-postrun-clean-unmount.log",
+    "comparison": "board/stmicroelectronics/stm32f746-disco/hammer/comparison.json"
+  },
+  "backups": {
+    "qspi_before_native_linux": {
+      "path": "output-qspi/hardware-backup/qspi-before-linux-20260813T020133Z.bin",
+      "bytes": 16777216,
+      "sha256": "dc370faee88fc88cab1bf23ed1ecac90fd2e1c9d9b17bc42b967183b0225a753"
+    },
+    "internal_flash_before_native_linux": {
+      "path": "output-qspi/hardware-backup/internal-flash-before-linux-20260813T020133Z.bin",
+      "bytes": 1048576,
+      "sha256": "1960bb74140f55881604aac48d17fda187735d635baa2a331469bc5bd83b1b7c"
+    }
+  },
+  "remaining": [
+    "port or enable Linux DMA2D rendering and rerun the strict 300-second contract",
+    "archive an external two-channel D3/D4 scope trace if an instrument interface is supplied",
+    "capture a fresh LXP primary result with explicit SD clock identity",
+    "diagnose Pi-to-board Dropbear encrypted-stream corruption only if SSH administration is required"
+  ]
+}
