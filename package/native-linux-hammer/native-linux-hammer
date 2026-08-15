@@ -18,7 +18,9 @@ sqlite_output=/run/native-hammer-sqlite.out
 db_errors=/tmp/native-hammer-db-errors
 sqlite_helper="${HAMMER_SQLITE:-/usr/bin/hammer-sqlite}"
 transaction='BEGIN IMMEDIATE;INSERT INTO events(payload) VALUES(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024)),(randomblob(1024));UPDATE meta SET n=n+8;DELETE FROM events WHERE id<(SELECT max(id)-127 FROM events);COMMIT;'
-vacuum_sql='PRAGMA temp_store_directory="/data/.native-linux-hammer";VACUUM;'
+sqlite_connection_sql='PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;PRAGMA temp_store=FILE;PRAGMA temp_store_directory="/data/.native-linux-hammer";PRAGMA cache_size=-16;PRAGMA mmap_size=0;'
+sqlite_schema_sql="${sqlite_connection_sql}DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);"
+vacuum_sql="${sqlite_connection_sql}VACUUM;"
 
 lv_pid=
 net_pid=
@@ -71,6 +73,30 @@ sqlite_request()
 		esac
 	done
 	return 1
+}
+
+start_sqlite()
+{
+	rm -f "$sqlite_input" "$sqlite_output"
+	mkfifo "$sqlite_input" "$sqlite_output" || return 1
+	"$sqlite_helper" "$database" --batch "$sqlite_input" "$sqlite_output" \
+		2>>"$db_errors" &
+	sqlite_pid=$!
+	exec 3>"$sqlite_input" || return 1
+	exec 4<"$sqlite_output" || return 1
+}
+
+stop_sqlite()
+{
+	exec 3>&-
+	exec 4<&-
+	stop_status=0
+	if [ -n "$sqlite_pid" ]; then
+		wait "$sqlite_pid" || stop_status=$?
+		sqlite_pid=
+	fi
+	rm -f "$sqlite_input" "$sqlite_output"
+	return "$stop_status"
 }
 
 snapshot()
@@ -146,6 +172,10 @@ done
 	echo 'native-linux-hammer: /dev/uinput is absent' >&2
 	exit 3
 }
+[ -x "$sqlite_helper" ] || {
+	echo 'native-linux-hammer: SQLite helper is absent' >&2
+	exit 3
+}
 
 # SQLite randomblob() reads the kernel RNG.  On fast QSPI boots Dropbear may
 # already have host keys and therefore not wait for CRNG initialization.
@@ -211,23 +241,17 @@ printf 'tap 120 160 1500\n' >"$uinput_control" || exit 3
 sleep 2
 
 # Coalesce any clean pages faulted while starting the player before exec needs
-# one order-6 segment for SQLite's bounded 240 KiB MEMSYS5 arena.  Keeping the
-# complete FDPIC data segment below 256 KiB is required by PREEMPT_RT's SLUB
-# footprint on this 8 MiB NOMMU board; the workload uses a 16 KiB page cache.
+# one order-7 segment for SQLite's bounded 448 KiB MEMSYS5 arena. Keeping the
+# complete FDPIC image below 512 KiB reserves the arena before PREEMPT_RT's
+# SLUB footprint fragments RAM; the workload uses a 16 KiB page cache.
 if grep -Eq 'root=(/dev/mtdblock0|mtd:rootfs)' /proc/cmdline &&
 	[ -w /proc/sys/vm/drop_caches ]; then
 	echo 3 >/proc/sys/vm/drop_caches
 fi
 
-mkfifo "$sqlite_input" "$sqlite_output" || exit 4
-"$sqlite_helper" "$database" --batch "$sqlite_input" "$sqlite_output" \
-	2>"$db_errors" &
-sqlite_pid=$!
-exec 3>"$sqlite_input"
-exec 4<"$sqlite_output"
-sqlite_request \
-	'PRAGMA journal_mode=DELETE;PRAGMA synchronous=FULL;PRAGMA temp_store=FILE;PRAGMA temp_store_directory="/data/.native-linux-hammer";PRAGMA cache_size=-16;PRAGMA mmap_size=0;DROP TABLE IF EXISTS events;DROP TABLE IF EXISTS meta;CREATE TABLE events(id INTEGER PRIMARY KEY,payload BLOB);CREATE TABLE meta(n INTEGER NOT NULL);INSERT INTO meta VALUES(0);' \
-	/dev/null || exit 4
+: >"$db_errors"
+start_sqlite || exit 4
+sqlite_request "$sqlite_schema_sql" /dev/null || exit 4
 
 /usr/bin/wget -q -T 2 -O /dev/null http://172.1.1.1:8082/reset || exit 6
 /bin/nice -n 10 /usr/bin/wget -q -T "$((duration + 30))" -O /dev/null \
@@ -236,7 +260,8 @@ net_pid=$!
 network_ready=0
 attempt=0
 while [ "$attempt" -lt 100 ]; do
-	if /usr/bin/wget -q -T 1 -O /dev/null http://172.1.1.1:8082/ready; then
+	if /usr/bin/wget -q -T 1 -O /dev/null http://172.1.1.1:8082/ready \
+		2>/dev/null; then
 		network_ready=1
 		break
 	fi
@@ -373,11 +398,7 @@ sqlite_request 'SELECT n FROM meta;' /tmp/native-hammer-meta
 read -r meta </tmp/native-hammer-meta
 sqlite_request 'SELECT count(*) FROM events;' /tmp/native-hammer-live
 read -r live_rows </tmp/native-hammer-live
-exec 3>&-
-wait "$sqlite_pid"
-sqlite_pid=
-exec 4<&-
-rm -f "$sqlite_input" "$sqlite_output"
+stop_sqlite || [ "$failure" != none ] || failure=sqlite-stop
 meta=${meta:-unknown}
 live_rows=${live_rows:-unknown}
 rows=$((submitted * 8))

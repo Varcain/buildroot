@@ -8,7 +8,8 @@
 #include <string.h>
 
 #define STATUS_PREFIX "__HAMMER_SQLITE_STATUS__:"
-#define SQLITE_HEAP_BYTES (240 * 1024)
+#define SQLITE_HEAP_BYTES (448 * 1024)
+#define SQLITE_PAGECACHE_KIB 16
 
 /*
  * Linux/NOMMU anonymous mappings require physically contiguous pages.  Keep
@@ -17,6 +18,13 @@
  */
 static unsigned char sqlite_heap[SQLITE_HEAP_BYTES]
 	__attribute__((aligned(8)));
+
+static void sqlite_log(void *context, int error_code, const char *message)
+{
+	(void)context;
+	fprintf(stderr, "hammer-sqlite: sqlite log %d: %s\n",
+		error_code, message);
+}
 
 static int print_row(void *context, int columns, char **values, char **names)
 {
@@ -76,6 +84,25 @@ int main(int argc, char **argv)
 			       sizeof(sqlite_heap), 64);
 	if (status != SQLITE_OK) {
 		fprintf(stderr, "hammer-sqlite: configure fixed heap: %s\n",
+			sqlite3_errstr(status));
+		return status;
+	}
+	/*
+	 * A NULL page-cache buffer with negative N asks each connection for a
+	 * bounded -1024*N-byte bulk allocation.  Configure this at runtime as
+	 * well as in the Buildroot SQLite patch: staged helpers may deliberately
+	 * run against an older QSPI-resident libsqlite3 during bring-up.
+	 */
+	status = sqlite3_config(SQLITE_CONFIG_PAGECACHE, NULL, 0,
+			       -SQLITE_PAGECACHE_KIB);
+	if (status != SQLITE_OK) {
+		fprintf(stderr, "hammer-sqlite: configure bounded page cache: %s\n",
+			sqlite3_errstr(status));
+		return status;
+	}
+	status = sqlite3_config(SQLITE_CONFIG_LOG, sqlite_log, NULL);
+	if (status != SQLITE_OK) {
+		fprintf(stderr, "hammer-sqlite: configure SQLite log: %s\n",
 			sqlite3_errstr(status));
 		return status;
 	}
