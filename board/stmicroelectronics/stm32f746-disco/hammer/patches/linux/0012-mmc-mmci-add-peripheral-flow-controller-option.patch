@@ -1,0 +1,71 @@
+From: hIRoic Linux hammer PoC <noreply@example.com>
+Subject: [PATCH] mmc: mmci: add peripheral flow-controller option
+
+STM32F746 SDMMC is capable of terminating a DMA transfer as the peripheral
+flow controller.  The STM32CubeF7 board driver enables DMA PFCTRL for both
+receive and transmit, but generic MMCI hard-codes device_fc=false.  With the
+DMA controller in charge, a one-sector receive completes while words remain
+in the MMCI FIFO; MMCI consequently declares the DMA buggy and falls back to
+PIO.
+
+Add an ST-specific opt-in property and pass it through dma_slave_config.  It
+is deliberately disabled by default so the behavior of all existing MMCI
+users remains unchanged.
+
+Upstream-status: Not submitted [STM32F746 board validation]
+---
+ .../devicetree/bindings/mmc/arm,pl18x.yaml         | 5 +++++
+ drivers/mmc/host/mmci.c                            | 4 +++-
+ drivers/mmc/host/mmci.h                            | 1 +
+ 3 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/mmc/arm,pl18x.yaml b/Documentation/devicetree/bindings/mmc/arm,pl18x.yaml
+--- a/Documentation/devicetree/bindings/mmc/arm,pl18x.yaml
++++ b/Documentation/devicetree/bindings/mmc/arm,pl18x.yaml
+@@ -116,6 +116,11 @@ properties:
+     description: ST Micro-specific property, use CKIN pin from an external
+       driver to sample the receive data (for example with a voltage switch
+       transceiver).
++
++  st,dma-peripheral-flow-controller:
++    $ref: /schemas/types.yaml#/definitions/flag
++    description: ST Micro-specific property, let the MMCI peripheral control
++      the number of data items transferred by the external DMA controller.
+ 
+   st,cmd-gpios:
+     maxItems: 1
+diff --git a/drivers/mmc/host/mmci.c b/drivers/mmc/host/mmci.c
+--- a/drivers/mmc/host/mmci.c
++++ b/drivers/mmc/host/mmci.c
+@@ -944,8 +944,8 @@ static int _mmci_dmae_prep_data(struct mmci_host *host, struct mmc_data *data,
+ 		.src_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES,
+ 		.dst_addr_width = DMA_SLAVE_BUSWIDTH_4_BYTES,
+ 		.src_maxburst = variant->fifohalfsize >> 2, /* # of words */
+ 		.dst_maxburst = variant->fifohalfsize >> 2, /* # of words */
+-		.device_fc = false,
++		.device_fc = host->dma_peripheral_fc,
+ 	};
+ 	struct dma_chan *chan;
+ 	struct dma_device *device;
+@@ -2049,6 +2049,8 @@ static int mmci_of_parse(struct device_node *np, struct mmc_host *mmc)
+ 		host->clk_reg_add |= MCI_STM32_CLK_NEGEDGE;
+ 	if (of_get_property(np, "st,use-ckin", NULL))
+ 		mmci_probe_level_translator(mmc);
++	if (of_property_read_bool(np, "st,dma-peripheral-flow-controller"))
++		host->dma_peripheral_fc = true;
+ 
+ 	if (of_get_property(np, "mmc-cap-mmc-highspeed", NULL))
+ 		mmc->caps |= MMC_CAP_MMC_HIGHSPEED;
+diff --git a/drivers/mmc/host/mmci.h b/drivers/mmc/host/mmci.h
+--- a/drivers/mmc/host/mmci.h
++++ b/drivers/mmc/host/mmci.h
+@@ -436,6 +436,7 @@ struct mmci_host {
+ 
+ 	u8			use_dma:1;
+ 	u8			dma_in_progress:1;
++	u8			dma_peripheral_fc:1;
+ 	void			*dma_priv;
+ 
+ 	s32			next_cookie;
+-- 
+2.51.0
