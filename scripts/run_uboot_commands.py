@@ -6,6 +6,7 @@ import os
 import re
 import select
 import sys
+import termios
 import time
 from pathlib import Path
 
@@ -24,19 +25,13 @@ def wait_for(fd, stream, pattern, deadline):
 
 
 def stop_autoboot(fd, stream, deadline):
-    """Continuously request an autoboot stop across a hardware reset."""
+    """Send one exact SPACE after U-Boot publishes the autoboot prompt."""
     captured = bytearray()
     prompt = re.compile(UBOOT_PATTERN)
-    next_space = 0.0
+    banner = re.compile(rb"Hit SPACE in [0-9]+ seconds to stop autoboot\.")
+    space_sent = False
     stop_deadline = min(deadline, time.monotonic() + 15.0)
     while time.monotonic() < stop_deadline:
-        now = time.monotonic()
-        if now >= next_space:
-            try:
-                os.write(fd, b" ")
-            except BlockingIOError:
-                pass
-            next_space = now + 0.25
         readable, _, _ = select.select([fd], [], [], 0.05)
         if not readable:
             continue
@@ -51,7 +46,12 @@ def stop_autoboot(fd, stream, deadline):
         sys.stdout.buffer.write(chunk)
         sys.stdout.buffer.flush()
         captured.extend(chunk)
-        if prompt.search(bytes(captured[-16384:])):
+        window = bytes(captured[-16384:])
+        if not space_sent and banner.search(window):
+            paced_write(fd, " ", 0.0)
+            termios.tcdrain(fd)
+            space_sent = True
+        if prompt.search(window):
             return
     # A noisy VCP can lose the original prompt.  End any accumulated blank
     # command and request a fresh prompt after the autoboot window is over.
