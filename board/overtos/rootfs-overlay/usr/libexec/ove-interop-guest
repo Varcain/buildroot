@@ -1,0 +1,21 @@
+#!/bin/sh
+
+# Stable guest-side entrypoint for the oveRTOS interop demonstration. Keep
+# executable paths and Linux userspace policy in the rootfs rather than in the
+# RTOS application which embeds it.
+
+case "${1:-}" in
+	roundtrip)
+		exec /bin/busybox cat
+		;;
+	boot)
+		exec /bin/busybox init
+		;;
+	fpcheck)
+		exec /usr/bin/fpcheck
+		;;
+	*)
+		printf 'usage: %s {roundtrip|boot|fpcheck}\n' "$0" >&2
+		exit 2
+		;;
+esac
