@@ -13,6 +13,9 @@ OVERTOS_LVBENCH_VERSION = 9.5.0
 # The sibling oveRTOS checkout (../oveRTOS) vendors LVGL v9.5 at dl/lvgl.
 OVERTOS_LVBENCH_SITE = $(realpath $(TOPDIR)/../oveRTOS/dl/lvgl)
 OVERTOS_LVBENCH_SITE_METHOD = local
+# The guest-extension ABI (/dev/dma2d, the framebuffer blit) comes from LXP's exported
+# uapi headers in the same checkout, so the guest and the personality cannot drift.
+OVERTOS_LVBENCH_LXP_UAPI = $(realpath $(TOPDIR)/../oveRTOS/modules/lxp/include/uapi)
 OVERTOS_LVBENCH_LICENSE = MIT
 OVERTOS_LVBENCH_LICENSE_FILES = LICENCE.txt
 
@@ -35,7 +38,8 @@ define OVERTOS_LVBENCH_BUILD_CMDS
 	# guest is unprivileged; the coordinator owns the peripheral). Same overlay pattern.
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/lv_draw_dma2d.c $(@D)/src/draw/dma2d/lv_draw_dma2d.c
 	cp $(OVERTOS_LVBENCH_PKGDIR)/src/ove_dma2d_hal_shim.h $(@D)/src/draw/dma2d/ove_dma2d_hal_shim.h
-	$(MAKE) -C $(@D) -f Makefile.lvbench $(TARGET_CONFIGURE_OPTS) LVGL_DIR=$(@D)
+	$(MAKE) -C $(@D) -f Makefile.lvbench $(TARGET_CONFIGURE_OPTS) LVGL_DIR=$(@D) \
+		LXP_UAPI_DIR=$(OVERTOS_LVBENCH_LXP_UAPI)
 endef
 
 define OVERTOS_LVBENCH_INSTALL_TARGET_CMDS

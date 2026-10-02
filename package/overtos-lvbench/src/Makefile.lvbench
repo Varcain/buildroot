@@ -13,11 +13,15 @@
 # fonts/assets (and vice-versa) despite the shared lv_conf.h.
 
 LVGL_DIR ?= .
+# LXP's include/uapi: the /dev/dma2d and framebuffer-blit ABI (overtos-lvbench.mk sets it).
+ifeq ($(LXP_UAPI_DIR),)
+$(error LXP_UAPI_DIR must name LXP's include/uapi directory)
+endif
 CC       ?= gcc
 CFLAGS   ?= -O2
 
 override CFLAGS += -mfdpic -O2 -g0 -ffunction-sections -fdata-sections \
-                   -I$(LVGL_DIR) -DLV_CONF_INCLUDE_SIMPLE \
+                   -I$(LVGL_DIR) -I$(LXP_UAPI_DIR) -DLV_CONF_INCLUDE_SIMPLE \
                    -Wno-unused-parameter -Wno-unused-variable
 override LDFLAGS += -Wl,--gc-sections
 

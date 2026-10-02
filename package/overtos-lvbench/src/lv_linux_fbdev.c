@@ -24,14 +24,11 @@
  * argv[1] so the draw-buffer size can be swept without rebuilding the rootfs. */
 int lv_linux_fbdev_buf_lines = LV_LINUX_FBDEV_BUFFER_SIZE;
 
-/* oveRTOS: DMA2D framebuffer-blit (mirror of lxp_uapi.h). One ioctl offloads a whole
- * rectangular flush to the coordinator's DMA2D engine — replacing the per-scanline
- * pwrite storm the mmap fallback pays on engines with no free MPU region for the fb.
- * OVE_DMA2D_FLUSH=0 forces the pwrite/memcpy path (for a same-boot A/B). */
-#define LXP_FBIO_DMA2D_BLIT 0x46f0ul
-struct lxp_fb_blit {
-    uint32_t src, src_stride, x, y, w, h;
-};
+/* oveRTOS: DMA2D framebuffer-blit (LXP_FBIO_DMA2D_BLIT, from LXP's include/uapi). One
+ * ioctl offloads a whole rectangular flush to the coordinator's DMA2D engine — replacing
+ * the per-scanline pwrite storm the mmap fallback pays on engines with no free MPU region
+ * for the fb. OVE_DMA2D_FLUSH=0 forces the pwrite/memcpy path (for a same-boot A/B). */
+#include <lxp/fbio.h>
 
 static int g_fb_blit_state = -1; /* -1 unprobed, 0 unavailable, 1 available */
 

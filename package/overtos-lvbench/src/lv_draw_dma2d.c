@@ -24,31 +24,13 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
+#include <lxp/dma2d.h> /* the /dev/dma2d ABI, from LXP's include/uapi */
+
 /*********************
  *      DEFINES
  *********************/
 
 #define DRAW_UNIT_ID_DMA2D 5
-
-/* /dev/dma2d ABI (mirror of the coordinator's lxp_uapi.h). Fixed-width fields so
- * the layout matches the ARM 32-bit kernel side exactly. */
-#define LXP_DMA2D_SUBMIT _IOW('D', 1, struct lxp_dma2d_submit)
-
-struct lxp_dma2d_submit {
-    uint32_t mode;
-    uint32_t w, h;
-    uint32_t output_address, output_offset;
-    uint32_t output_cf;
-    uint32_t reg_to_mem_color;
-    uint32_t fg_address, fg_offset;
-    uint32_t fg_cf;
-    uint32_t fg_color;
-    uint32_t fg_alpha_mode, fg_alpha;
-    uint32_t bg_address, bg_offset;
-    uint32_t bg_cf;
-    uint32_t bg_color;
-    uint32_t bg_alpha_mode, bg_alpha;
-};
 
 /**********************
  *  STATIC PROTOTYPES
@@ -150,7 +132,10 @@ void lv_draw_dma2d_configure_and_start_transfer(const lv_draw_dma2d_configuratio
 
     /* LVGL's mode is the raw DMA2D CR.MODE value {M2M,PFC,BLEND,R2M,BLEND_FG,BLEND_BG};
      * the /dev/dma2d ABI orders R2M last (=4) and folds fixed-fg/bg into blend-fg (=3). */
-    static const uint32_t mode_map[6] = {0u, 1u, 2u, 4u, 3u, 3u};
+    static const uint32_t mode_map[6] = {
+        LXP_DMA2D_M2M, LXP_DMA2D_M2M_PFC, LXP_DMA2D_M2M_BLEND,
+        LXP_DMA2D_R2M, LXP_DMA2D_M2M_BLEND_FG, LXP_DMA2D_M2M_BLEND_FG
+    };
 
     struct lxp_dma2d_submit s;
     memset(&s, 0, sizeof(s));
