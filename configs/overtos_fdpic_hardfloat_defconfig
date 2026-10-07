@@ -15,6 +15,27 @@ BR2_ROOTFS_OVERLAY="board/overtos/rootfs-overlay"
 BR2_ROOTFS_POST_BUILD_SCRIPT="board/overtos/post-build.sh board/overtos/post-build-hardfloat.sh board/overtos/strip-fdpic.sh"
 BR2_PACKAGE_BUSYBOX_CONFIG="board/overtos/busybox.config"
 BR2_PACKAGE_OVERTOS_LVBENCH=y
+# Scriptable Linux-personality benchmark runtime, the same set as
+# overtos_fdpic_defconfig: the shell, Lua and MicroPython hammer drivers need
+# sqlite3, the Lua database/socket/process/filesystem/JSON bindings and the
+# MicroPython sqlite and process modules. Lua keeps the default "no command-line
+# editing": readline pulls in ncurses, which needs a wide-char toolchain that
+# this configuration does not build.
+BR2_PACKAGE_LUA=y
+BR2_PACKAGE_LUA_5_4=y
+BR2_PACKAGE_LUA_32BITS=y
+BR2_PACKAGE_LUA_ARGPARSE=y
+BR2_PACKAGE_LUA_CJSON=y
+BR2_PACKAGE_LUA_OVE_PROCESS=y
+BR2_PACKAGE_LUADBI=y
+BR2_PACKAGE_LUADBI_SQLITE3=y
+BR2_PACKAGE_LUAFILESYSTEM=y
+BR2_PACKAGE_LUASOCKET=y
+BR2_PACKAGE_SQLITE=y
+BR2_PACKAGE_MICROPYTHON=y
+BR2_PACKAGE_MICROPYTHON_LIB=y
+BR2_PACKAGE_MICROPYTHON_SQLITE=y
+BR2_PACKAGE_MICROPYTHON_OVE_PROCESS=y
 BR2_PACKAGE_CA_CERTIFICATES=y
 BR2_PACKAGE_MBEDTLS=y
 BR2_PACKAGE_LIBCURL=y
